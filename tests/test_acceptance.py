@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from typing import Any
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -25,23 +26,45 @@ class TestBootstrapDemo:
     """Test that fresh clone bootstrap works correctly."""
     
     @pytest.fixture
-    def temp_data_dir(self):
-        """Create a temporary data directory."""
+    def temp_data_dir(self) -> Path:
+        """Create a temporary data directory.
+
+        Returns:
+            A temporary directory path used as a data directory.
+        """
         tmp = tempfile.mkdtemp(prefix="episodic_test_")
         yield Path(tmp)
         shutil.rmtree(tmp, ignore_errors=True)
     
     @pytest.fixture
-    def fixtures_path(self):
-        """Path to demo fixtures."""
+    def fixtures_path(self) -> Path:
+        """Return the path to the demo fixtures JSON file.
+
+        Returns:
+            Path to `demo_data/fixtures.json`.
+        """
         return PROJECT_ROOT / "demo_data" / "fixtures.json"
     
-    def test_fixtures_file_exists(self, fixtures_path):
-        """Verify demo fixtures file exists."""
+    def test_fixtures_file_exists(self, fixtures_path: Path) -> None:
+        """Verify the demo fixtures file exists.
+
+        Args:
+            fixtures_path: Path to the fixtures file.
+
+        Returns:
+            None.
+        """
         assert fixtures_path.exists(), f"Fixtures file not found: {fixtures_path}"
     
-    def test_fixtures_file_valid_json(self, fixtures_path):
-        """Verify fixtures file is valid JSON."""
+    def test_fixtures_file_valid_json(self, fixtures_path: Path) -> None:
+        """Verify fixtures file is valid JSON and has required top-level keys.
+
+        Args:
+            fixtures_path: Path to the fixtures file.
+
+        Returns:
+            None.
+        """
         with open(fixtures_path) as f:
             data = json.load(f)
         
@@ -49,8 +72,15 @@ class TestBootstrapDemo:
         assert "episodes" in data
         assert len(data["episodes"]) > 0
     
-    def test_fixtures_episodes_have_required_fields(self, fixtures_path):
-        """Verify each episode has required fields."""
+    def test_fixtures_episodes_have_required_fields(self, fixtures_path: Path) -> None:
+        """Verify each fixture episode has required fields and reasonable length.
+
+        Args:
+            fixtures_path: Path to the fixtures file.
+
+        Returns:
+            None.
+        """
         with open(fixtures_path) as f:
             data = json.load(f)
         
@@ -59,8 +89,16 @@ class TestBootstrapDemo:
             assert "source" in ep, f"Episode {i} missing 'source' field"
             assert len(ep["text"]) > 10, f"Episode {i} text too short"
     
-    def test_bootstrap_creates_artifacts(self, temp_data_dir, fixtures_path):
-        """Test that bootstrap creates expected artifacts."""
+    def test_bootstrap_creates_artifacts(self, temp_data_dir: Path, fixtures_path: Path) -> None:
+        """Test that bootstrap creates expected artifacts on disk.
+
+        Args:
+            temp_data_dir: Temporary data directory.
+            fixtures_path: Path to fixtures file.
+
+        Returns:
+            None.
+        """
         from scripts.bootstrap_demo import bootstrap_demo
         
         summary = bootstrap_demo(
@@ -86,8 +124,16 @@ class TestBootstrapDemo:
         npy_files = list(temp_data_dir.glob("*.npy"))
         assert len(npy_files) > 0, "No ID map files created"
     
-    def test_bootstrap_dry_run_no_changes(self, temp_data_dir, fixtures_path):
-        """Test that dry-run doesn't create any files."""
+    def test_bootstrap_dry_run_no_changes(self, temp_data_dir: Path, fixtures_path: Path) -> None:
+        """Test that dry-run does not create any files.
+
+        Args:
+            temp_data_dir: Temporary data directory.
+            fixtures_path: Path to fixtures file.
+
+        Returns:
+            None.
+        """
         from scripts.bootstrap_demo import bootstrap_demo
         
         summary = bootstrap_demo(
@@ -105,8 +151,16 @@ class TestBootstrapDemo:
         assert not (temp_data_dir / "memory.db").exists()
         assert len(list(temp_data_dir.glob("*.faiss"))) == 0
     
-    def test_bootstrap_clean_removes_existing(self, temp_data_dir, fixtures_path):
-        """Test that --clean removes existing data."""
+    def test_bootstrap_clean_removes_existing(self, temp_data_dir: Path, fixtures_path: Path) -> None:
+        """Test that cleaning removes existing bootstrap artifacts.
+
+        Args:
+            temp_data_dir: Temporary data directory.
+            fixtures_path: Path to fixtures file.
+
+        Returns:
+            None.
+        """
         from scripts.bootstrap_demo import bootstrap_demo, clean_data_directory
         
         # First bootstrap
@@ -130,8 +184,12 @@ class TestBootstrapDemo:
 class TestDoctorCommand:
     """Test that doctor command works correctly."""
     
-    def test_dry_diagnostics_no_initialization(self):
-        """Test dry-run diagnostics doesn't initialize components."""
+    def test_dry_diagnostics_no_initialization(self) -> None:
+        """Test dry-run diagnostics doesn't initialize components.
+
+        Returns:
+            None.
+        """
         from src.services.diagnostics import DiagnosticsService
         
         service = DiagnosticsService()
@@ -144,8 +202,12 @@ class TestDoctorCommand:
         assert "predictions" in result
         assert "suggestions" in result
     
-    def test_dry_diagnostics_detects_mock_status(self):
-        """Test that dry diagnostics correctly predicts mock usage."""
+    def test_dry_diagnostics_detects_mock_status(self) -> None:
+        """Test that dry diagnostics correctly predicts mock usage.
+
+        Returns:
+            None.
+        """
         from src.services.diagnostics import DiagnosticsService
         
         service = DiagnosticsService()
@@ -155,8 +217,12 @@ class TestDoctorCommand:
         assert result["predictions"]["will_use_mock_embeddings"] == True
         assert result["predictions"]["will_use_mock_llm"] == True
     
-    def test_dry_diagnostics_provides_suggestions_for_mock(self):
-        """Test that suggestions are provided when mock would be used."""
+    def test_dry_diagnostics_provides_suggestions_for_mock(self) -> None:
+        """Test that suggestions are provided when mock would be used.
+
+        Returns:
+            None.
+        """
         from src.services.diagnostics import DiagnosticsService
         
         service = DiagnosticsService()
@@ -174,14 +240,25 @@ class TestEvaluationReproducibility:
     """Test that evaluation runs are reproducible."""
     
     @pytest.fixture
-    def temp_runs_dir(self):
-        """Create a temporary runs directory."""
+    def temp_runs_dir(self) -> Path:
+        """Create a temporary runs directory.
+
+        Returns:
+            A temporary directory path used as the evaluation runs directory.
+        """
         tmp = tempfile.mkdtemp(prefix="episodic_eval_")
         yield Path(tmp)
         shutil.rmtree(tmp, ignore_errors=True)
     
-    def test_eval_run_saves_to_disk(self, temp_runs_dir):
-        """Test that eval run saves results to disk."""
+    def test_eval_run_saves_to_disk(self, temp_runs_dir: Path) -> None:
+        """Test that eval run saves results to disk.
+
+        Args:
+            temp_runs_dir: Temporary runs directory.
+
+        Returns:
+            None.
+        """
         from src.services.evaluation import EvaluationService
         from src.bootstrap import get_components
         from config import config
@@ -202,8 +279,15 @@ class TestEvaluationReproducibility:
         assert run_dir.exists(), "Run directory not created"
         assert (run_dir / "eval_run.json").exists(), "eval_run.json not created"
     
-    def test_eval_run_schema_has_required_fields(self, temp_runs_dir):
-        """Test that saved eval run has required schema fields."""
+    def test_eval_run_schema_has_required_fields(self, temp_runs_dir: Path) -> None:
+        """Test that saved eval run has required schema fields.
+
+        Args:
+            temp_runs_dir: Temporary runs directory.
+
+        Returns:
+            None.
+        """
         from src.services.evaluation import EvaluationService
         from src.bootstrap import get_components
         from config import config
@@ -233,8 +317,15 @@ class TestEvaluationReproducibility:
         assert "llm_provider" in config_data
         assert "precision_k" in config_data
     
-    def test_eval_runs_can_be_loaded(self, temp_runs_dir):
-        """Test that saved runs can be loaded back."""
+    def test_eval_runs_can_be_loaded(self, temp_runs_dir: Path) -> None:
+        """Test that saved runs can be loaded back.
+
+        Args:
+            temp_runs_dir: Temporary runs directory.
+
+        Returns:
+            None.
+        """
         from src.services.evaluation import EvaluationService
         from src.bootstrap import get_components
         from config import config
@@ -253,8 +344,15 @@ class TestEvaluationReproducibility:
         assert loaded.dataset == result1.dataset
         assert loaded.success == result1.success
     
-    def test_eval_compare_detects_differences(self, temp_runs_dir):
-        """Test that comparison detects config/metric differences."""
+    def test_eval_compare_detects_differences(self, temp_runs_dir: Path) -> None:
+        """Test that comparison detects config/metric differences.
+
+        Args:
+            temp_runs_dir: Temporary runs directory.
+
+        Returns:
+            None.
+        """
         from src.services.evaluation import EvaluationService, EvalRunResult, EvalConfig
         import json
         from datetime import datetime
@@ -336,8 +434,15 @@ class TestEvaluationReproducibility:
         # Should detect embedding provider difference
         assert "embedding_provider" in comparison.config_diffs
     
-    def test_eval_list_returns_runs(self, temp_runs_dir):
-        """Test that list_runs returns available runs."""
+    def test_eval_list_returns_runs(self, temp_runs_dir: Path) -> None:
+        """Test that list_runs returns available runs.
+
+        Args:
+            temp_runs_dir: Temporary runs directory.
+
+        Returns:
+            None.
+        """
         from src.services.evaluation import EvaluationService
         from src.bootstrap import get_components
         from config import config
@@ -360,13 +465,21 @@ class TestEvaluationReproducibility:
 class TestDemoDataPolicy:
     """Test demo data safety policy compliance."""
     
-    def test_demo_data_readme_exists(self):
-        """Verify demo_data/README.md exists."""
+    def test_demo_data_readme_exists(self) -> None:
+        """Verify `demo_data/README.md` exists.
+
+        Returns:
+            None.
+        """
         readme_path = PROJECT_ROOT / "demo_data" / "README.md"
         assert readme_path.exists(), "demo_data/README.md not found"
     
-    def test_demo_data_readme_has_policy(self):
-        """Verify README contains data policy information."""
+    def test_demo_data_readme_has_policy(self) -> None:
+        """Verify README contains data policy information.
+
+        Returns:
+            None.
+        """
         readme_path = PROJECT_ROOT / "demo_data" / "README.md"
         content = readme_path.read_text()
         
@@ -375,8 +488,12 @@ class TestDemoDataPolicy:
         assert "synthetic" in content.lower() or "fictional" in content.lower(), \
             "README should mention synthetic/fictional data"
     
-    def test_fixtures_contain_only_synthetic_data(self):
-        """Verify fixtures don't contain obviously real data."""
+    def test_fixtures_contain_only_synthetic_data(self) -> None:
+        """Verify fixtures don't contain obviously real data.
+
+        Returns:
+            None.
+        """
         fixtures_path = PROJECT_ROOT / "demo_data" / "fixtures.json"
         
         with open(fixtures_path) as f:

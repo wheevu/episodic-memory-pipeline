@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_l2(vectors: np.ndarray) -> np.ndarray:
-    """L2-normalize vectors for cosine similarity via inner product."""
+    """L2-normalize vectors so inner product corresponds to cosine similarity.
+
+    Args:
+        vectors: Vector array shaped (d,) or (n, d).
+
+    Returns:
+        A normalized array with the same shape as `vectors`.
+    """
     if vectors.ndim == 1:
         norm = np.linalg.norm(vectors)
         return vectors / norm if norm > 0 else vectors
@@ -35,53 +42,78 @@ class EmbeddingProvider(ABC):
     @property
     @abstractmethod
     def dimension(self) -> int:
-        """Return the embedding dimension."""
+        """Return the embedding dimension.
+
+        Returns:
+            The embedding vector dimensionality.
+        """
         pass
     
     @property
     def provider_name(self) -> str:
-        """Return provider name for logging/debugging."""
+        """Return provider name for logging/debugging.
+
+        Returns:
+            A human-readable provider identifier.
+        """
         return self.__class__.__name__
     
     @property
     def is_mock(self) -> bool:
-        """Return True if this is a mock provider."""
+        """Return True if this is a mock provider.
+
+        Returns:
+            True if the provider is a mock; otherwise False.
+        """
         return False
     
     @abstractmethod
     def embed_text(self, text: str) -> np.ndarray:
-        """
-        Generate embedding for a single text.
-        
+        """Generate an embedding for a single text.
+
         Args:
-            text: Input text to embed
-            
+            text: Input text to embed.
+
         Returns:
-            L2-normalized embedding vector as np.float32 array
+            L2-normalized embedding vector as a `np.float32` array.
         """
         pass
     
     @abstractmethod
     def embed_batch(self, texts: list[str]) -> np.ndarray:
-        """
-        Generate embeddings for multiple texts.
-        
+        """Generate embeddings for multiple texts.
+
         Args:
-            texts: List of input texts
-            
+            texts: List of input texts.
+
         Returns:
-            L2-normalized 2D numpy array of shape (len(texts), dimension), dtype=np.float32
+            L2-normalized 2D numpy array of shape `(len(texts), dimension)`,
+            dtype `np.float32`.
         """
         pass
     
     # Aliases for common naming conventions
     def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
-        """Alias for embed_batch, returns list of arrays."""
+        """Alias for `embed_batch` that returns a list of arrays.
+
+        Args:
+            texts: Documents to embed.
+
+        Returns:
+            A list of per-document embedding arrays.
+        """
         embeddings = self.embed_batch(texts)
         return [embeddings[i] for i in range(embeddings.shape[0])]
     
     def embed_query(self, text: str) -> np.ndarray:
-        """Alias for embed_text."""
+        """Alias for `embed_text`.
+
+        Args:
+            text: Query text to embed.
+
+        Returns:
+            The embedding vector for the query.
+        """
         return self.embed_text(text)
 
 
@@ -93,14 +125,16 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         api_key: str,
         model: str = "text-embedding-3-small",
         dimension: int = 1536
-    ):
-        """
-        Initialize OpenAI embedding provider.
-        
+    ) -> None:
+        """Initialize the OpenAI embedding provider.
+
         Args:
-            api_key: OpenAI API key
-            model: Model name (text-embedding-3-small or text-embedding-3-large)
-            dimension: Output dimension (can reduce for smaller models)
+            api_key: OpenAI API key.
+            model: Model name (e.g., "text-embedding-3-small").
+            dimension: Output dimension.
+
+        Raises:
+            ImportError: If the `openai` package is not installed.
         """
         try:
             from openai import OpenAI
@@ -113,10 +147,22 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     
     @property
     def dimension(self) -> int:
+        """Return the embedding dimension produced by this provider.
+
+        Returns:
+            The embedding vector dimensionality.
+        """
         return self._dimension
     
     def embed_text(self, text: str) -> np.ndarray:
-        """Generate embedding using OpenAI API."""
+        """Generate an embedding using the OpenAI embeddings API.
+
+        Args:
+            text: Input text to embed.
+
+        Returns:
+            L2-normalized embedding vector.
+        """
         response = self._client.embeddings.create(
             model=self._model,
             input=text,
@@ -126,7 +172,14 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return _normalize_l2(embedding)
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
-        """Generate embeddings for batch using OpenAI API."""
+        """Generate embeddings for a batch using the OpenAI embeddings API.
+
+        Args:
+            texts: Input texts to embed.
+
+        Returns:
+            L2-normalized embedding matrix of shape `(len(texts), dimension)`.
+        """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
         
@@ -158,17 +211,19 @@ class LocalEmbeddingProvider(EmbeddingProvider):
     
     def __init__(
         self,
-        model_name: str = None,
-        device: str = None,
+        model_name: Optional[str] = None,
+        device: Optional[str] = None,
         normalize: bool = True
-    ):
-        """
-        Initialize local embedding provider.
-        
+    ) -> None:
+        """Initialize the local sentence-transformers embedding provider.
+
         Args:
-            model_name: sentence-transformers model name (default: BAAI/bge-m3)
-            device: Device to run on ("cpu", "cuda", "mps", or None for auto)
-            normalize: Whether to L2-normalize embeddings (default: True)
+            model_name: Sentence-transformers model name (default: BAAI/bge-m3).
+            device: Device to run on ("cpu", "cuda", "mps", or None for auto).
+            normalize: Whether to L2-normalize embeddings.
+
+        Raises:
+            ImportError: If `sentence-transformers` is not installed.
         """
         try:
             from sentence_transformers import SentenceTransformer
@@ -200,7 +255,11 @@ class LocalEmbeddingProvider(EmbeddingProvider):
     
     @staticmethod
     def _detect_device() -> str:
-        """Auto-detect best available device."""
+        """Auto-detect the best available compute device.
+
+        Returns:
+            "cuda" if available, else "mps" (Apple Silicon), else "cpu".
+        """
         try:
             import torch
             if torch.cuda.is_available():
@@ -213,14 +272,31 @@ class LocalEmbeddingProvider(EmbeddingProvider):
     
     @property
     def dimension(self) -> int:
+        """Return the embedding dimension produced by the loaded model.
+
+        Returns:
+            The embedding vector dimensionality.
+        """
         return self._dimension
     
     @property
     def provider_name(self) -> str:
+        """Return a descriptive provider name including the model identifier.
+
+        Returns:
+            A descriptive provider name including the model identifier.
+        """
         return f"LocalEmbedding({self._model_name})"
     
     def embed_text(self, text: str) -> np.ndarray:
-        """Generate embedding using local model."""
+        """Generate an embedding using the local model.
+
+        Args:
+            text: Input text to embed.
+
+        Returns:
+            Embedding vector as `np.float32`.
+        """
         embedding = self._model.encode(
             text,
             convert_to_numpy=True,
@@ -235,7 +311,14 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         return embedding
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
-        """Generate embeddings for batch using local model."""
+        """Generate embeddings for a batch using the local model.
+
+        Args:
+            texts: Input texts to embed.
+
+        Returns:
+            Embedding matrix as `np.float32` of shape `(len(texts), dimension)`.
+        """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
         
@@ -266,17 +349,16 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     
     def __init__(
         self,
-        model: str = None,
-        base_url: str = None,
-        dimension: int = None
-    ):
-        """
-        Initialize Ollama embedding provider.
-        
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        dimension: Optional[int] = None
+    ) -> None:
+        """Initialize the Ollama embedding provider.
+
         Args:
-            model: Ollama embedding model name (default: nomic-embed-text)
-            base_url: Ollama server URL (default: http://localhost:11434)
-            dimension: Expected embedding dimension (auto-detected if not specified)
+            model: Ollama embedding model name (default: nomic-embed-text).
+            base_url: Ollama server URL (default: http://localhost:11434).
+            dimension: Expected embedding dimension (auto-detected if not specified).
         """
         self._model = model or os.getenv("OLLAMA_EMBED_MODEL", self.DEFAULT_MODEL)
         self._base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
@@ -289,7 +371,11 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         logger.info(f"Ollama embeddings: model={self._model}, dimension={self._dimension}")
     
     def _detect_dimension(self) -> int:
-        """Detect embedding dimension by running a test embedding."""
+        """Detect embedding dimension by running a test embedding request.
+
+        Returns:
+            The detected embedding vector length, or a conservative default on failure.
+        """
         import httpx
         
         try:
@@ -308,14 +394,31 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     
     @property
     def dimension(self) -> int:
+        """Return the embedding dimension produced by the Ollama model.
+
+        Returns:
+            The embedding vector dimensionality.
+        """
         return self._dimension
     
     @property
     def provider_name(self) -> str:
+        """Return a descriptive provider name including the model identifier.
+
+        Returns:
+            A descriptive provider name including the model identifier.
+        """
         return f"OllamaEmbedding({self._model})"
     
     def embed_text(self, text: str) -> np.ndarray:
-        """Generate embedding using Ollama API."""
+        """Generate an embedding using Ollama's embeddings endpoint.
+
+        Args:
+            text: Input text to embed.
+
+        Returns:
+            L2-normalized embedding vector.
+        """
         import httpx
         
         response = httpx.post(
@@ -329,7 +432,14 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         return _normalize_l2(embedding)
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
-        """Generate embeddings for batch using Ollama API."""
+        """Generate embeddings for a batch by calling Ollama per item.
+
+        Args:
+            texts: Input texts to embed.
+
+        Returns:
+            L2-normalized embedding matrix.
+        """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
         
@@ -347,29 +457,50 @@ class MockEmbeddingProvider(EmbeddingProvider):
     will NOT have similar embeddings. Use only for testing data flow.
     """
     
-    def __init__(self, dimension: int = 1024):
-        """
-        Initialize mock embedding provider.
-        
+    def __init__(self, dimension: int = 1024) -> None:
+        """Initialize the mock embedding provider.
+
         Args:
-            dimension: Embedding dimension (default: 1024 to match BGE-M3)
+            dimension: Embedding dimension (default: 1024 to match BGE-M3).
         """
         self._dimension = dimension
     
     @property
     def dimension(self) -> int:
+        """Return the embedding dimension produced by this mock provider.
+
+        Returns:
+            The embedding vector dimensionality.
+        """
         return self._dimension
     
     @property
     def is_mock(self) -> bool:
+        """Return True for the mock provider.
+
+        Returns:
+            True.
+        """
         return True
     
     @property
     def provider_name(self) -> str:
+        """Return a stable provider name for logging/debugging.
+
+        Returns:
+            A stable provider name.
+        """
         return "MockEmbedding"
     
     def embed_text(self, text: str) -> np.ndarray:
-        """Generate deterministic mock embedding."""
+        """Generate a deterministic mock embedding.
+
+        Args:
+            text: Input text to "embed".
+
+        Returns:
+            A normalized random vector derived from the text hash.
+        """
         # Use hash to generate reproducible "embeddings"
         np.random.seed(hash(text) % (2**32))
         embedding = np.random.randn(self._dimension).astype(np.float32)
@@ -377,7 +508,14 @@ class MockEmbeddingProvider(EmbeddingProvider):
         return _normalize_l2(embedding)
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
-        """Generate mock embeddings for batch."""
+        """Generate mock embeddings for a batch.
+
+        Args:
+            texts: Input texts to embed.
+
+        Returns:
+            A matrix of embeddings stacked row-wise.
+        """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
         return np.vstack([self.embed_text(t) for t in texts])
@@ -391,26 +529,28 @@ def get_embedding_provider(
     device: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> EmbeddingProvider:
-    """
-    Factory function to get embedding provider.
-    
+    """Factory to create an `EmbeddingProvider` implementation.
+
     Args:
-        provider: "local" (default), "openai", "ollama", or "mock"
-        api_key: API key (required for OpenAI)
-        model: Model name (optional, uses defaults per provider)
-        dimension: Embedding dimension (optional, auto-detected for most providers)
-        device: Device for local provider ("cpu", "cuda", "mps", or None for auto)
-        base_url: Base URL for Ollama provider
-        
+        provider: Provider name: "local" (default), "openai", "ollama", or "mock".
+        api_key: API key (required for OpenAI).
+        model: Model name (optional; uses provider defaults).
+        dimension: Embedding dimension (optional; auto-detected for most providers).
+        device: Device for local provider ("cpu", "cuda", "mps", or None for auto).
+        base_url: Base URL for Ollama provider.
+
     Returns:
-        Configured EmbeddingProvider instance
-        
+        A configured `EmbeddingProvider` instance.
+
+    Raises:
+        ValueError: If the provider is unknown or required configuration is missing.
+
     Environment variables:
-        EMBEDDING_PROVIDER: Default provider selection
-        EMBEDDING_MODEL: Default model name
-        EMBEDDING_DEVICE: Device for local embeddings
-        OLLAMA_BASE_URL: Ollama server URL
-        OLLAMA_EMBED_MODEL: Ollama embedding model
+        EMBEDDING_PROVIDER: Default provider selection.
+        EMBEDDING_MODEL: Default model name.
+        EMBEDDING_DEVICE: Device for local embeddings.
+        OLLAMA_BASE_URL: Ollama server URL.
+        OLLAMA_EMBED_MODEL: Ollama embedding model.
     """
     # Get provider from environment if not explicitly set
     provider = os.getenv("EMBEDDING_PROVIDER", provider)

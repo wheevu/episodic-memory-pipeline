@@ -49,13 +49,21 @@ class EvaluationScenario(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Return scenario name."""
+        """Return scenario name.
+
+        Returns:
+            A short identifier for the scenario.
+        """
         pass
     
     @property
     @abstractmethod
     def description(self) -> str:
-        """Return scenario description."""
+        """Return scenario description.
+
+        Returns:
+            A human-readable description of the scenario.
+        """
         pass
     
     @abstractmethod
@@ -89,14 +97,28 @@ class DiaryScenario(EvaluationScenario):
     
     @property
     def name(self) -> str:
+        """Return the short scenario identifier.
+
+        Returns:
+            The scenario identifier string.
+        """
         return "diary"
     
     @property
     def description(self) -> str:
+        """Return a human-readable description of the scenario.
+
+        Returns:
+            A human-readable description string.
+        """
         return "Personal diary entries over one week with learning and work topics"
     
     def get_episodes(self) -> list[tuple[str, list[str]]]:
-        """Return diary entries with expected topics."""
+        """Return diary entries with expected topics.
+
+        Returns:
+            A list of `(text, expected_topics)` tuples used for ingestion.
+        """
         return [
             # Day 1 - Monday
             (
@@ -162,7 +184,11 @@ class DiaryScenario(EvaluationScenario):
         ]
     
     def get_queries(self) -> list[EvaluationQuery]:
-        """Return evaluation queries with expected results."""
+        """Return evaluation queries with expected results.
+
+        Returns:
+            A list of `EvaluationQuery` objects used to evaluate retrieval.
+        """
         return [
             EvaluationQuery(
                 query_text="What am I learning?",
@@ -200,7 +226,7 @@ class EvaluationRunner:
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
         precision_k: int = 5,
-    ):
+    ) -> None:
         """
         Initialize evaluation runner.
         
@@ -208,6 +234,9 @@ class EvaluationRunner:
             embedding_provider: Embedding provider to use
             llm: LLM provider to use
             precision_k: K value for precision@k metric
+        
+        Returns:
+            None.
         """
         self.embedding_provider = embedding_provider
         self.llm = llm

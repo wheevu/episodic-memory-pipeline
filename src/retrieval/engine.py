@@ -5,7 +5,7 @@ Combines semantic and narrative retrieval with LLM-based answer synthesis.
 """
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import dataclass
 
 from ..models import Episode, Fact, Summary
@@ -19,7 +19,17 @@ from .narrative import NarrativeRetriever, NarrativeResult
 
 @dataclass
 class QueryResult:
-    """Result of a memory query."""
+    """Represents the end-to-end result of a user query.
+
+    Attributes:
+        answer: Final answer text (may be empty if synthesis disabled).
+        confidence: Answer confidence score (heuristic or model-provided).
+        episodes: Supporting episodes.
+        facts: Supporting facts.
+        summaries: Supporting summaries.
+        query_type: Strategy used ("semantic" or "narrative").
+        gaps: Missing information that would improve the answer.
+    """
     answer: str
     confidence: float
     episodes: list[Episode]
@@ -45,15 +55,14 @@ class RetrievalEngine:
         vector_store: VectorStore,
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
-    ):
-        """
-        Initialize retrieval engine.
-        
+    ) -> None:
+        """Initialize the retrieval engine.
+
         Args:
-            database: Database storage
-            vector_store: Vector storage
-            embedding_provider: Embedding model
-            llm: LLM for analysis and synthesis
+            database: Structured storage for episodes/facts/summaries.
+            vector_store: Vector index used by retrievers.
+            embedding_provider: Provider used to embed user queries.
+            llm: Provider used for query analysis and answer synthesis.
         """
         self.database = database
         self.llm = llm
@@ -70,15 +79,17 @@ class RetrievalEngine:
         query: str,
         synthesize: bool = True,
     ) -> QueryResult:
-        """
-        Process a natural language query.
-        
+        """Process a natural-language query end-to-end.
+
+        This method (1) analyzes the query to choose a retrieval strategy,
+        (2) retrieves relevant memories, then (3) optionally synthesizes an answer.
+
         Args:
-            query: User's query
-            synthesize: Whether to generate LLM answer
-            
+            query: User's natural-language query.
+            synthesize: If True, generate an LLM-based answer from retrieved context.
+
         Returns:
-            QueryResult with answer and supporting memories
+            A `QueryResult` containing retrieved context and (optionally) an answer.
         """
         # Analyze query to determine strategy
         query_analysis = self._analyze_query(query)
@@ -138,7 +149,14 @@ class RetrievalEngine:
         )
     
     def _analyze_query(self, query: str) -> dict:
-        """Analyze query to determine retrieval strategy."""
+        """Analyze a query to determine retrieval strategy and filters.
+
+        Args:
+            query: User query text.
+
+        Returns:
+            A dictionary describing query type, time/topic filters, and a reformulation.
+        """
         # Get known topics for context
         topics = self.database.get_topics()
         topic_names = [t["name"] for t in topics]
@@ -170,7 +188,17 @@ class RetrievalEngine:
         since: Optional[datetime],
         until: Optional[datetime],
     ) -> SemanticResult:
-        """Perform semantic retrieval."""
+        """Perform semantic retrieval via the `SemanticRetriever`.
+
+        Args:
+            query: Reformulated query text.
+            topic: Optional topic filter.
+            since: Optional start time filter.
+            until: Optional end time filter.
+
+        Returns:
+            A `SemanticResult` containing retrieved items.
+        """
         return self.semantic.search(
             query,
             topic_filter=topic,
@@ -185,7 +213,17 @@ class RetrievalEngine:
         since: Optional[datetime],
         until: Optional[datetime],
     ) -> NarrativeResult:
-        """Perform narrative retrieval."""
+        """Perform narrative retrieval via the `NarrativeRetriever`.
+
+        Args:
+            query: Reformulated query text used when no explicit topic is available.
+            topic: Optional explicit topic to recall.
+            since: Optional start time filter.
+            until: Optional end time filter.
+
+        Returns:
+            A `NarrativeResult` containing a chronologically ordered narrative.
+        """
         if topic:
             return self.narrative.recall(topic, since=since, until=until)
         else:
@@ -194,9 +232,17 @@ class RetrievalEngine:
     def _synthesize_answer(
         self,
         query: str,
-        result,
+        result: Any,
     ) -> dict:
-        """Synthesize an answer from retrieved memories."""
+        """Synthesize an answer from retrieved memories using the LLM.
+
+        Args:
+            query: Original user query (not reformulated).
+            result: Retrieval result object (semantic or narrative).
+
+        Returns:
+            A dictionary containing the synthesized answer, confidence, and gaps.
+        """
         # Format memories for prompt
         episodes_text = PromptTemplates.format_episodes_for_prompt(
             result.episodes if result.episodes else []
@@ -233,10 +279,17 @@ class RetrievalEngine:
         topic_or_query: str,
         is_topic: bool = False,
     ) -> QueryResult:
-        """
-        Recall a narrative (story/journey) about a topic.
-        
-        This is optimized for "Tell me about..." style queries.
+        """Recall a narrative (story/journey) about a topic or inferred topic.
+
+        This is optimized for "Tell me about..." style requests and returns a
+        narrative synthesis as the answer.
+
+        Args:
+            topic_or_query: Topic name (if `is_topic=True`) or free-form query text.
+            is_topic: If True, treat `topic_or_query` as an explicit topic.
+
+        Returns:
+            A `QueryResult` with narrative answer and supporting context.
         """
         if is_topic:
             result = self.narrative.recall(topic_or_query)
@@ -261,7 +314,15 @@ class RetrievalEngine:
         topic: str,
         result: NarrativeResult,
     ) -> dict:
-        """Generate a narrative synthesis."""
+        """Generate a narrative synthesis from time-ordered memories.
+
+        Args:
+            topic: Topic label used in the narrative prompt.
+            result: Narrative retrieval output to synthesize from.
+
+        Returns:
+            A dictionary containing narrative text and optional structured fields.
+        """
         episodes_text = PromptTemplates.format_episodes_for_prompt(result.episodes)
         facts_text = PromptTemplates.format_facts_for_prompt(result.facts)
         summaries_text = PromptTemplates.format_summaries_for_prompt(result.summaries)
@@ -286,10 +347,13 @@ class RetrievalEngine:
             }
     
     def quick_lookup(self, query: str) -> list[Fact]:
-        """
-        Quick fact lookup without synthesis.
-        
-        For simple "What is my X?" type queries.
+        """Perform a quick fact-only lookup without answer synthesis.
+
+        Args:
+            query: Fact-oriented query text (e.g., "What is my favorite food?").
+
+        Returns:
+            A list of facts returned by semantic search.
         """
         result = self.semantic.search(
             query,
@@ -301,10 +365,14 @@ class RetrievalEngine:
         return result.facts
     
     def get_context(self, topic: str, max_items: int = 5) -> dict:
-        """
-        Get quick context about a topic.
-        
-        Returns recent episodes, key facts, and latest summary.
+        """Return a compact context bundle for a topic.
+
+        Args:
+            topic: Topic to fetch context for.
+            max_items: Maximum number of episodes/facts to include.
+
+        Returns:
+            A dictionary containing recent episodes, facts, and the latest summary.
         """
         episodes = self.database.get_episodes(topic=topic, limit=max_items)
         facts = self.database.get_facts(topic=topic, limit=max_items)

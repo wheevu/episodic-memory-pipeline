@@ -11,8 +11,8 @@ import shutil
 
 from config import Config
 from src.storage import Database, VectorStore
-from src.embeddings import get_embedding_provider
-from src.llm import get_llm_provider
+from src.embeddings import EmbeddingProvider, get_embedding_provider
+from src.llm import LLMProvider, get_llm_provider
 from src.ingestion import IngestionPipeline
 from src.consolidation import ConsolidationPipeline
 from src.retrieval import RetrievalEngine
@@ -20,16 +20,27 @@ from src.models import Episode, Fact, Summary, MemoryType
 
 
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test data."""
+def temp_dir() -> Path:
+    """Create a temporary directory for test data.
+
+    Returns:
+        Path to the created temporary directory.
+    """
     tmp = tempfile.mkdtemp()
     yield Path(tmp)
     shutil.rmtree(tmp)
 
 
 @pytest.fixture
-def test_config(temp_dir):
-    """Create a test configuration."""
+def test_config(temp_dir: Path) -> Config:
+    """Create a test configuration.
+
+    Args:
+        temp_dir: Temporary directory used as the base for test artifacts.
+
+    Returns:
+        A `Config` configured to write into the temporary directory.
+    """
     config = Config()
     config.database_path = temp_dir / "test.db"
     config.vector_index_path = temp_dir / "test.faiss"
@@ -38,33 +49,56 @@ def test_config(temp_dir):
 
 
 @pytest.fixture
-def database(test_config):
-    """Create a test database."""
+def database(test_config: Config) -> Database:
+    """Create a test database.
+
+    Args:
+        test_config: Test configuration with database path.
+
+    Returns:
+        A `Database` instance backed by a temporary SQLite file.
+    """
     return Database(test_config.database_path)
 
 
 @pytest.fixture
-def vector_store(test_config):
-    """Create a test vector store."""
+def vector_store(test_config: Config) -> VectorStore:
+    """Create a test vector store.
+
+    Args:
+        test_config: Test configuration with vector index path.
+
+    Returns:
+        A `VectorStore` instance backed by temporary FAISS files.
+    """
     return VectorStore(test_config.vector_index_path, dimension=384)
 
 
 @pytest.fixture
-def embedding_provider():
-    """Create a mock embedding provider."""
+def embedding_provider() -> EmbeddingProvider:
+    """Create a mock embedding provider.
+
+    Returns:
+        A mock `EmbeddingProvider` with a fixed embedding dimension.
+    """
     return get_embedding_provider("mock", dimension=384)
 
 
 @pytest.fixture
-def llm():
-    """Create a mock LLM provider."""
+def llm() -> LLMProvider:
+    """Create a mock LLM provider.
+
+    Returns:
+        A mock `LLMProvider` suitable for deterministic tests.
+    """
     return get_llm_provider("mock")
 
 
 class TestEpisodeModel:
     """Test Episode model."""
     
-    def test_create_episode(self):
+    def test_create_episode(self) -> None:
+        """Create an Episode and validate core fields are set/typed correctly."""
         episode = Episode(
             raw_input="I started learning Korean today",
             content="User started learning Korean",
@@ -78,7 +112,8 @@ class TestEpisodeModel:
         assert "korean" in episode.topics
         assert episode.importance == 0.8
     
-    def test_episode_to_db_row(self):
+    def test_episode_to_db_row(self) -> None:
+        """Verify `Episode.to_db_row()` produces a persistable dictionary."""
         episode = Episode(
             raw_input="Test input",
             content="Test content",
@@ -93,7 +128,8 @@ class TestEpisodeModel:
         assert row["memory_type"] == "fact"
         assert '"test"' in row["topics"]
     
-    def test_episode_from_db_row(self):
+    def test_episode_from_db_row(self) -> None:
+        """Verify `Episode.from_db_row()` correctly parses serialized fields."""
         row = {
             "id": "test-id",
             "created_at": "2024-01-01T00:00:00",
@@ -122,7 +158,15 @@ class TestEpisodeModel:
 class TestDatabase:
     """Test database operations."""
     
-    def test_save_and_get_episode(self, database):
+    def test_save_and_get_episode(self, database: Database) -> None:
+        """Persist an episode and retrieve it by ID.
+
+        Args:
+            database: Test database fixture.
+
+        Returns:
+            None.
+        """
         episode = Episode(
             raw_input="Test input",
             content="Test content",
@@ -137,7 +181,15 @@ class TestDatabase:
         assert retrieved.id == episode.id
         assert retrieved.content == episode.content
     
-    def test_get_episodes_with_filters(self, database):
+    def test_get_episodes_with_filters(self, database: Database) -> None:
+        """Query episodes using a type filter.
+
+        Args:
+            database: Test database fixture.
+
+        Returns:
+            None.
+        """
         # Create episodes with different types
         ep1 = Episode(
             raw_input="Fact",
@@ -160,7 +212,15 @@ class TestDatabase:
         assert len(facts) == 1
         assert facts[0].memory_type == MemoryType.FACT
     
-    def test_save_and_get_fact(self, database):
+    def test_save_and_get_fact(self, database: Database) -> None:
+        """Persist a fact and retrieve it by ID.
+
+        Args:
+            database: Test database fixture.
+
+        Returns:
+            None.
+        """
         fact = Fact(
             content="User is learning Korean",
             category="knowledge",
@@ -179,7 +239,16 @@ class TestDatabase:
 class TestVectorStore:
     """Test vector store operations."""
     
-    def test_add_and_search(self, vector_store, embedding_provider):
+    def test_add_and_search(self, vector_store: VectorStore, embedding_provider: EmbeddingProvider) -> None:
+        """Add vectors to the store and validate search output structure/range.
+
+        Args:
+            vector_store: Test vector store fixture.
+            embedding_provider: Embedding provider fixture.
+
+        Returns:
+            None.
+        """
         # Add some vectors
         texts = ["Learning Korean", "Trip to Seoul", "Python programming"]
         for i, text in enumerate(texts):
@@ -202,8 +271,23 @@ class TestIngestionPipeline:
     """Test the full ingestion pipeline."""
     
     def test_ingest_memory_worthy_text(
-        self, database, vector_store, embedding_provider, llm
-    ):
+        self,
+        database: Database,
+        vector_store: VectorStore,
+        embedding_provider: EmbeddingProvider,
+        llm: LLMProvider,
+    ) -> None:
+        """Ingest a forced-worthy input and verify an episode is stored.
+
+        Args:
+            database: Test database fixture.
+            vector_store: Test vector store fixture.
+            embedding_provider: Embedding provider fixture.
+            llm: LLM provider fixture.
+
+        Returns:
+            None.
+        """
         pipeline = IngestionPipeline(
             database, vector_store, embedding_provider, llm,
             worthiness_threshold=0.5
@@ -220,8 +304,23 @@ class TestIngestionPipeline:
         assert result.episode.id is not None
     
     def test_skip_non_worthy_text(
-        self, database, vector_store, embedding_provider, llm
-    ):
+        self,
+        database: Database,
+        vector_store: VectorStore,
+        embedding_provider: EmbeddingProvider,
+        llm: LLMProvider,
+    ) -> None:
+        """Ingest a short acknowledgement and verify it is skipped.
+
+        Args:
+            database: Test database fixture.
+            vector_store: Test vector store fixture.
+            embedding_provider: Embedding provider fixture.
+            llm: LLM provider fixture.
+
+        Returns:
+            None.
+        """
         pipeline = IngestionPipeline(
             database, vector_store, embedding_provider, llm,
             worthiness_threshold=0.5
@@ -237,8 +336,23 @@ class TestConsolidationPipeline:
     """Test the consolidation pipeline."""
     
     def test_consolidate_topic(
-        self, database, vector_store, embedding_provider, llm
-    ):
+        self,
+        database: Database,
+        vector_store: VectorStore,
+        embedding_provider: EmbeddingProvider,
+        llm: LLMProvider,
+    ) -> None:
+        """Ingest episodes and ensure consolidation can be invoked without error.
+
+        Args:
+            database: Test database fixture.
+            vector_store: Test vector store fixture.
+            embedding_provider: Embedding provider fixture.
+            llm: LLM provider fixture.
+
+        Returns:
+            None.
+        """
         # First, add some episodes
         ingestion = IngestionPipeline(
             database, vector_store, embedding_provider, llm
@@ -267,8 +381,23 @@ class TestRetrievalEngine:
     """Test the retrieval engine."""
     
     def test_semantic_query(
-        self, database, vector_store, embedding_provider, llm
-    ):
+        self,
+        database: Database,
+        vector_store: VectorStore,
+        embedding_provider: EmbeddingProvider,
+        llm: LLMProvider,
+    ) -> None:
+        """Query the engine and validate a non-empty result structure is returned.
+
+        Args:
+            database: Test database fixture.
+            vector_store: Test vector store fixture.
+            embedding_provider: Embedding provider fixture.
+            llm: LLM provider fixture.
+
+        Returns:
+            None.
+        """
         # Add some data
         ingestion = IngestionPipeline(
             database, vector_store, embedding_provider, llm
@@ -287,8 +416,15 @@ class TestRetrievalEngine:
         assert result.answer is not None or result.episodes is not None
 
 
-def test_end_to_end_flow(temp_dir):
-    """Test the complete flow: ingest → consolidate → retrieve."""
+def test_end_to_end_flow(temp_dir: Path) -> None:
+    """Test the complete flow: ingest → consolidate → retrieve.
+
+    Args:
+        temp_dir: Temporary directory for test artifacts.
+
+    Returns:
+        None.
+    """
     # Setup
     config = Config()
     config.database_path = temp_dir / "test.db"

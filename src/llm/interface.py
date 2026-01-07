@@ -4,7 +4,7 @@ LLM provider abstraction.
 Unified interface for LLM completions supporting OpenAI, Ollama, and mock providers.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 import json
 import re
 
@@ -14,40 +14,55 @@ class LLMProvider(ABC):
     
     @property
     def is_mock(self) -> bool:
-        """Return True if this is a mock provider."""
+        """Return True if this is a mock provider.
+
+        Returns:
+            True if the provider is a mock; otherwise False.
+        """
         return False
     
     @abstractmethod
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
-        """
-        Generate a completion for the given prompt.
-        
+        """Generate a completion for the given prompt.
+
         Args:
-            prompt: The prompt to complete
-            temperature: Sampling temperature (0-1)
-            
+            prompt: Prompt text to complete.
+            temperature: Sampling temperature (0-1).
+
         Returns:
-            The completion text
+            The model-generated completion text.
         """
         pass
     
-    def complete_json(self, prompt: str, temperature: float = 0.1) -> dict:
-        """
-        Generate a JSON completion.
-        
+    def complete_json(self, prompt: str, temperature: float = 0.1) -> dict[str, Any]:
+        """Generate a completion and parse it as JSON.
+
         Args:
-            prompt: The prompt (should request JSON output)
-            temperature: Sampling temperature
-            
+            prompt: Prompt text (should instruct the model to output JSON).
+            temperature: Sampling temperature (0-1).
+
         Returns:
-            Parsed JSON response
+            A parsed JSON object.
+
+        Raises:
+            ValueError: If JSON cannot be extracted from the completion.
         """
         response = self.complete(prompt, temperature)
         # Try to extract JSON from response
         return self._extract_json(response)
     
-    def _extract_json(self, text: str) -> dict:
-        """Extract JSON from text that might have extra content."""
+    def _extract_json(self, text: str) -> dict[str, Any]:
+        """Extract a JSON object from text that may include extra formatting.
+
+        Args:
+            text: Raw model output that should contain a JSON object.
+
+        Returns:
+            The parsed JSON object.
+
+        Raises:
+            ValueError: If JSON cannot be extracted/parsed from the text.
+        """
         # Try direct parse first
         try:
             return json.loads(text)
@@ -55,6 +70,7 @@ class LLMProvider(ABC):
             pass
         
         # Try to find JSON block in markdown
+        # Many models wrap JSON in ```json ... ``` fences; extract the first object block.
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
         if json_match:
             return json.loads(json_match.group(1))
@@ -78,14 +94,16 @@ class OpenAILLMProvider(LLMProvider):
         api_key: str,
         model: str = "gpt-4o-mini",
         max_tokens: int = 1000
-    ):
-        """
-        Initialize OpenAI provider.
-        
+    ) -> None:
+        """Initialize the OpenAI provider.
+
         Args:
-            api_key: OpenAI API key
-            model: Model name
-            max_tokens: Maximum tokens in response
+            api_key: OpenAI API key.
+            model: Model name.
+            max_tokens: Maximum tokens in the response.
+
+        Raises:
+            ImportError: If the `openai` package is not installed.
         """
         try:
             from openai import OpenAI
@@ -97,7 +115,15 @@ class OpenAILLMProvider(LLMProvider):
         self._max_tokens = max_tokens
     
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
-        """Generate completion using OpenAI API."""
+        """Generate a completion using the OpenAI chat completions API.
+
+        Args:
+            prompt: Prompt text to complete.
+            temperature: Sampling temperature (0-1).
+
+        Returns:
+            The model-generated completion text.
+        """
         response = self._client.chat.completions.create(
             model=self._model,
             messages=[
@@ -135,19 +161,18 @@ CRITICAL RULES:
 
     def __init__(
         self,
-        model: str = None,
+        model: Optional[str] = None,
         base_url: str = "http://localhost:11434",
         max_tokens: int = 1000,
         temperature: float = 0.2,  # Lower default for determinism
-    ):
-        """
-        Initialize Ollama provider.
-        
+    ) -> None:
+        """Initialize the Ollama provider.
+
         Args:
-            model: Model name (default: qwen2.5:7b-instruct)
-            base_url: Ollama API URL
-            max_tokens: Maximum tokens in response
-            temperature: Default sampling temperature (0.2 for determinism)
+            model: Model name (default: qwen2.5:7b-instruct).
+            base_url: Ollama API base URL.
+            max_tokens: Maximum tokens in response.
+            temperature: Default sampling temperature (lower is more deterministic).
         """
         self._model = model or self.DEFAULT_MODEL
         self._base_url = base_url.rstrip("/")
@@ -156,19 +181,27 @@ CRITICAL RULES:
     
     @property
     def model_name(self) -> str:
-        """Return the model name being used."""
+        """Return the model name being used.
+
+        Returns:
+            The configured Ollama model name.
+        """
         return self._model
     
-    def complete(self, prompt: str, temperature: float = None) -> str:
-        """
-        Generate completion using Ollama API.
-        
+    def complete(self, prompt: str, temperature: Optional[float] = None) -> str:
+        """Generate a completion using the Ollama `/api/generate` endpoint.
+
         Args:
-            prompt: The prompt to complete
-            temperature: Sampling temperature (uses instance default if None)
-            
+            prompt: Prompt text to complete.
+            temperature: Sampling temperature (uses instance default if None).
+
         Returns:
-            The completion text
+            The model-generated completion text.
+
+        Raises:
+            ConnectionError: If the Ollama server cannot be reached.
+            ValueError: If the requested model is not found.
+            httpx.HTTPError: For other HTTP-layer failures.
         """
         import httpx
         
@@ -208,7 +241,11 @@ CRITICAL RULES:
             raise
     
     def is_available(self) -> bool:
-        """Check if Ollama server is available."""
+        """Return True if the Ollama server is reachable.
+
+        Returns:
+            True if the server responds successfully; otherwise False.
+        """
         import httpx
         try:
             response = httpx.get(f"{self._base_url}/api/tags", timeout=5.0)
@@ -217,7 +254,11 @@ CRITICAL RULES:
             return False
     
     def list_models(self) -> list[str]:
-        """List available models in Ollama."""
+        """List available models from the Ollama server.
+
+        Returns:
+            A list of model names, or an empty list on failure.
+        """
         import httpx
         try:
             response = httpx.get(f"{self._base_url}/api/tags", timeout=10.0)
@@ -235,17 +276,28 @@ class MockLLMProvider(LLMProvider):
     Produces deterministic, reasonable responses based on prompt analysis.
     """
     
-    def __init__(self):
-        """Initialize mock provider."""
-        pass
+    def __init__(self) -> None:
+        """Initialize the mock provider."""
     
     @property
     def is_mock(self) -> bool:
-        """Return True for mock provider."""
+        """Return True for mock provider.
+
+        Returns:
+            True.
+        """
         return True
     
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
-        """Generate mock completion based on prompt patterns."""
+        """Generate a deterministic mock completion based on prompt patterns.
+
+        Args:
+            prompt: Prompt text to "complete".
+            temperature: Unused; present to match interface.
+
+        Returns:
+            A JSON string matching the requested schema when recognizable.
+        """
         prompt_lower = prompt.lower()
         
         # Memory worthiness classification
@@ -335,23 +387,20 @@ def get_llm_provider(
     base_url: Optional[str] = None,
     temperature: Optional[float] = None,
 ) -> LLMProvider:
-    """
-    Factory function to get LLM provider.
-    
+    """Factory to create an `LLMProvider` implementation.
+
     Args:
-        provider: "openai", "ollama", or "mock"
-        api_key: API key (required for OpenAI)
-        model: Model name (optional, uses defaults)
-        base_url: Base URL (for Ollama)
-        temperature: Default temperature (for Ollama)
-        
+        provider: Provider name: "openai", "ollama", or "mock".
+        api_key: API key (required for OpenAI).
+        model: Model name (optional; uses provider defaults).
+        base_url: Base URL (for Ollama).
+        temperature: Default temperature (for Ollama).
+
     Returns:
-        Configured LLMProvider instance
-        
-    Provider Details:
-        - openai: Requires API key, best quality, network dependent
-        - ollama: Local inference, default model is qwen2.5:7b-instruct
-        - mock: For testing without external dependencies
+        A configured `LLMProvider` instance.
+
+    Raises:
+        ValueError: If the provider is unknown or required configuration is missing.
     """
     if provider == "openai":
         if not api_key:

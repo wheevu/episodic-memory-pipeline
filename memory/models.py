@@ -76,7 +76,21 @@ class Episode:
         source: str = "user_input",
         session_id: str = None,
     ) -> "Episode":
-        """Factory method for creating new episodes."""
+        """Factory method for creating new episodes.
+
+        Args:
+            content: Episode content (raw user text or cleaned memory content).
+            memory_type: Classification of the memory.
+            extracted_info: Optional structured extraction payload (LLM output).
+            topics: Optional topic tags.
+            entities: Optional named entities.
+            confidence: Extraction confidence score in [0.0, 1.0].
+            source: Source label for provenance.
+            session_id: Optional session identifier for grouping.
+
+        Returns:
+            Newly created `Episode` instance.
+        """
         return cls(
             id=str(uuid.uuid4()),
             content=content,
@@ -91,7 +105,11 @@ class Episode:
         )
     
     def to_embedding_text(self) -> str:
-        """Generate text for embedding - combines content with structure."""
+        """Generate text for embedding - combines content with structure.
+
+        Returns:
+            A string suitable for embedding generation.
+        """
         parts = [self.content]
         if self.topics:
             parts.append(f"Topics: {', '.join(self.topics)}")
@@ -139,7 +157,18 @@ class Fact:
         fact_type: str = "general",
         confidence: float = 1.0,
     ) -> "Fact":
-        """Factory method for creating new facts."""
+        """Factory method for creating new facts.
+
+        Args:
+            content: Fact statement.
+            topic: Primary topic category.
+            source_episode_ids: Episode IDs supporting this fact.
+            fact_type: Optional fact subcategory (e.g., preference, relationship).
+            confidence: Confidence score in [0.0, 1.0].
+
+        Returns:
+            Newly created `Fact` instance.
+        """
         now = datetime.utcnow()
         return cls(
             id=str(uuid.uuid4()),
@@ -152,8 +181,15 @@ class Fact:
             confidence=confidence,
         )
     
-    def add_source(self, episode_id: str):
-        """Add a supporting episode to this fact."""
+    def add_source(self, episode_id: str) -> None:
+        """Add a supporting episode to this fact.
+
+        Args:
+            episode_id: Episode ID to add as supporting evidence.
+
+        Returns:
+            None.
+        """
         if episode_id not in self.source_episode_ids:
             self.source_episode_ids.append(episode_id)
             self.updated_at = datetime.utcnow()
@@ -204,7 +240,18 @@ class Summary:
         period_start: datetime,
         period_end: datetime,
     ) -> "Summary":
-        """Factory method for creating new summaries."""
+        """Factory method for creating new summaries.
+
+        Args:
+            content: Summary text.
+            topic: Topic this summary covers.
+            source_episode_ids: Episode IDs consolidated into this summary.
+            period_start: Start time of the covered period.
+            period_end: End time of the covered period.
+
+        Returns:
+            Newly created `Summary` instance.
+        """
         now = datetime.utcnow()
         return cls(
             id=str(uuid.uuid4()),

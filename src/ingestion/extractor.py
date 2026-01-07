@@ -16,7 +16,13 @@ from ..utils import as_list, as_str, as_float
 
 @dataclass
 class ExtractionResult:
-    """Result of episode extraction."""
+    """Represents the outcome of extracting an episode from text.
+
+    Attributes:
+        episode: The extracted `Episode` object (may be a fallback on parse error).
+        extraction_confidence: Heuristic confidence score for the extraction.
+        raw_llm_response: Raw LLM response text (or error string on fallback).
+    """
     episode: Episode
     extraction_confidence: float
     raw_llm_response: str
@@ -35,7 +41,7 @@ class EpisodeExtractor:
     """
     
     # Time offset mappings
-    TIME_OFFSETS = {
+    TIME_OFFSETS: dict[str, timedelta] = {
         "none": timedelta(0),
         "yesterday": timedelta(days=-1),
         "last_week": timedelta(days=-7),
@@ -44,12 +50,11 @@ class EpisodeExtractor:
         "earlier_today": timedelta(hours=-6),
     }
     
-    def __init__(self, llm: LLMProvider):
-        """
-        Initialize extractor.
-        
+    def __init__(self, llm: LLMProvider) -> None:
+        """Initialize the episode extractor.
+
         Args:
-            llm: LLM provider for extraction
+            llm: LLM provider used for structured extraction.
         """
         self.llm = llm
     
@@ -61,18 +66,17 @@ class EpisodeExtractor:
         source: str = "chat",
         session_id: Optional[str] = None,
     ) -> ExtractionResult:
-        """
-        Extract episode from text.
-        
+        """Extract a structured `Episode` from raw input text.
+
         Args:
-            text: Raw input text
-            memory_type_hint: Hint from classifier (may be overridden)
-            timestamp: When the input was received
-            source: Source of input (chat, note, import)
-            session_id: Session identifier for grouping
-            
+            text: Raw input text to extract from.
+            memory_type_hint: Optional classifier hint (may be overridden by LLM output).
+            timestamp: When the input was received; defaults to current UTC time.
+            source: Source label for the input (e.g., "chat", "note", "import").
+            session_id: Optional session identifier for grouping related inputs.
+
         Returns:
-            ExtractionResult with Episode and metadata
+            An `ExtractionResult` containing the extracted episode and metadata.
         """
         timestamp = timestamp or datetime.utcnow()
         
@@ -95,6 +99,7 @@ class EpisodeExtractor:
             # Calculate occurred_at from offset
             offset_str = as_str(result.get("occurred_at_offset"), default="none")
             offset = self.TIME_OFFSETS.get(offset_str, timedelta(0))
+            # Offsets are negative for past references (e.g., "yesterday" -> -1 day).
             occurred_at = timestamp + offset
             
             # Sanitize all LLM output fields
@@ -145,12 +150,15 @@ class EpisodeExtractor:
             )
     
     def _extract_basic_topics(self, text: str) -> list[str]:
+        """Extract basic topics using simple keyword heuristics (fallback path).
+
+        Args:
+            text: Raw input text.
+
+        Returns:
+            A small list of coarse topic labels (max 3).
         """
-        Extract basic topics using heuristics (fallback).
-        
-        This is used when LLM extraction fails.
-        """
-        topics = []
+        topics: list[str] = []
         text_lower = text.lower()
         
         # Common topic keywords
@@ -177,7 +185,16 @@ class EpisodeExtractor:
         timestamp: Optional[datetime] = None,
         source: str = "chat"
     ) -> list[ExtractionResult]:
-        """Extract episodes from multiple texts."""
+        """Extract episodes from multiple texts.
+
+        Args:
+            texts: Input texts to extract from.
+            timestamp: Timestamp applied to all extractions; defaults to current UTC time.
+            source: Source label applied to all extractions.
+
+        Returns:
+            A list of `ExtractionResult` aligned to the input order.
+        """
         timestamp = timestamp or datetime.utcnow()
         return [
             self.extract(text, timestamp=timestamp, source=source)

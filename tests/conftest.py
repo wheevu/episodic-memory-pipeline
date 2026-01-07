@@ -29,10 +29,18 @@ For tests, we recommend:
 See ARCHITECTURE.md for more details on the initialization order constraint.
 """
 import pytest
+from typing import Any
 
 
-def pytest_addoption(parser):
-    """Add custom command-line options."""
+def pytest_addoption(parser: Any) -> None:
+    """Add custom command-line options.
+
+    Args:
+        parser: Pytest option parser.
+
+    Returns:
+        None.
+    """
     parser.addoption(
         "--run-slow",
         action="store_true",
@@ -41,21 +49,35 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
-    """Configure pytest markers."""
+def pytest_configure(config: Any) -> None:
+    """Configure pytest markers.
+
+    Args:
+        config: Pytest configuration object.
+
+    Returns:
+        None.
+    """
     config.addinivalue_line(
         "markers",
         "slow: marks tests as slow (require model downloads, may take > 5s)"
     )
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     """
     Modify test collection based on markers and options.
     
     By default (without --run-slow), slow tests are skipped.
     With --run-slow, all tests run.
     With -m slow, only slow tests run.
+
+    Args:
+        config: Pytest configuration object.
+        items: Collected test items to potentially modify.
+
+    Returns:
+        None.
     """
     if config.getoption("--run-slow"):
         # --run-slow given: don't skip slow tests

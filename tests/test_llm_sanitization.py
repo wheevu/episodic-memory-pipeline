@@ -31,17 +31,17 @@ from src.models import Episode, MemoryType, Fact, FactCategory, Summary
 class TestAsListFunction:
     """Test as_list sanitization helper."""
     
-    def test_valid_list_passthrough(self):
+    def test_valid_list_passthrough(self) -> None:
         """Valid lists should pass through unchanged."""
         assert as_list(["a", "b", "c"]) == ["a", "b", "c"]
         assert as_list([1, 2, 3]) == [1, 2, 3]
         assert as_list([]) == []
     
-    def test_null_returns_empty_list(self):
+    def test_null_returns_empty_list(self) -> None:
         """null/None should return empty list."""
         assert as_list(None) == []
     
-    def test_non_list_returns_empty_list(self):
+    def test_non_list_returns_empty_list(self) -> None:
         """Non-list types should return empty list."""
         assert as_list("not a list") == []
         assert as_list(123) == []
@@ -49,7 +49,7 @@ class TestAsListFunction:
         assert as_list(True) == []
         assert as_list(3.14) == []
     
-    def test_nested_list_passthrough(self):
+    def test_nested_list_passthrough(self) -> None:
         """Nested lists should pass through."""
         nested = [["a", "b"], ["c", "d"]]
         assert as_list(nested) == nested
@@ -58,18 +58,18 @@ class TestAsListFunction:
 class TestAsStrFunction:
     """Test as_str sanitization helper."""
     
-    def test_valid_string_passthrough(self):
+    def test_valid_string_passthrough(self) -> None:
         """Valid strings should pass through unchanged."""
         assert as_str("hello") == "hello"
         assert as_str("") == ""
         assert as_str("  spaced  ") == "  spaced  "
     
-    def test_null_returns_default(self):
+    def test_null_returns_default(self) -> None:
         """null/None should return default."""
         assert as_str(None) == ""
         assert as_str(None, default="fallback") == "fallback"
     
-    def test_non_string_returns_default(self):
+    def test_non_string_returns_default(self) -> None:
         """Non-string types should return default, not auto-convert."""
         assert as_str(123) == ""
         assert as_str(123, default="num") == "num"
@@ -77,7 +77,7 @@ class TestAsStrFunction:
         assert as_str(["list"]) == ""
         assert as_str({"dict": "value"}) == ""
     
-    def test_custom_default(self):
+    def test_custom_default(self) -> None:
         """Custom defaults should be used correctly."""
         assert as_str(None, default="custom") == "custom"
         assert as_str(123, default="not_a_number") == "not_a_number"
@@ -86,34 +86,34 @@ class TestAsStrFunction:
 class TestAsFloatFunction:
     """Test as_float sanitization helper."""
     
-    def test_valid_float_passthrough(self):
+    def test_valid_float_passthrough(self) -> None:
         """Valid floats should pass through."""
         assert as_float(3.14) == 3.14
         assert as_float(0.0) == 0.0
         assert as_float(-1.5) == -1.5
     
-    def test_integer_converts_to_float(self):
+    def test_integer_converts_to_float(self) -> None:
         """Integers should convert to float."""
         assert as_float(5) == 5.0
         assert as_float(0) == 0.0
     
-    def test_string_number_converts(self):
+    def test_string_number_converts(self) -> None:
         """String numbers should convert to float."""
         assert as_float("3.14") == 3.14
         assert as_float("5") == 5.0
         assert as_float("-2.5") == -2.5
     
-    def test_null_returns_default(self):
+    def test_null_returns_default(self) -> None:
         """null/None should return default."""
         assert as_float(None) == 0.0
         assert as_float(None, default=0.5) == 0.5
     
-    def test_invalid_string_returns_default(self):
+    def test_invalid_string_returns_default(self) -> None:
         """Invalid strings should return default."""
         assert as_float("not a number") == 0.0
         assert as_float("invalid", default=0.5) == 0.5
     
-    def test_complex_types_return_default(self):
+    def test_complex_types_return_default(self) -> None:
         """Complex types should return default."""
         assert as_float(["list"]) == 0.0
         assert as_float({"dict": "value"}) == 0.0
@@ -122,42 +122,42 @@ class TestAsFloatFunction:
 class TestAsBoolFunction:
     """Test as_bool sanitization helper."""
     
-    def test_valid_bool_passthrough(self):
+    def test_valid_bool_passthrough(self) -> None:
         """Valid booleans should pass through."""
         assert as_bool(True) is True
         assert as_bool(False) is False
     
-    def test_string_true_converts(self):
+    def test_string_true_converts(self) -> None:
         """String 'true' variants should convert."""
         assert as_bool("true") is True
         assert as_bool("True") is True
         assert as_bool("TRUE") is True
     
-    def test_string_false_converts(self):
+    def test_string_false_converts(self) -> None:
         """String 'false' variants should convert."""
         assert as_bool("false") is False
         assert as_bool("False") is False
         assert as_bool("FALSE") is False
     
-    def test_numeric_converts(self):
+    def test_numeric_converts(self) -> None:
         """Numeric values should convert (0=False, non-zero=True)."""
         assert as_bool(1) is True
         assert as_bool(0) is False
         assert as_bool(-1) is True
     
-    def test_null_returns_default(self):
+    def test_null_returns_default(self) -> None:
         """null/None should return default."""
         assert as_bool(None) is False
         assert as_bool(None, default=True) is True
     
-    def test_invalid_string_returns_default(self):
+    def test_invalid_string_returns_default(self) -> None:
         """Invalid strings should return default."""
         assert as_bool("yes") is False
         assert as_bool("no") is False
         assert as_bool("invalid") is False
         assert as_bool("invalid", default=True) is True
     
-    def test_complex_types_return_default(self):
+    def test_complex_types_return_default(self) -> None:
         """Complex types should return default."""
         assert as_bool(["list"]) is False
         assert as_bool({"dict": "value"}) is False
@@ -166,16 +166,16 @@ class TestAsBoolFunction:
 class TestAsDictFunction:
     """Test as_dict sanitization helper."""
     
-    def test_valid_dict_passthrough(self):
+    def test_valid_dict_passthrough(self) -> None:
         """Valid dicts should pass through."""
         assert as_dict({"key": "value"}) == {"key": "value"}
         assert as_dict({}) == {}
     
-    def test_null_returns_empty_dict(self):
+    def test_null_returns_empty_dict(self) -> None:
         """null/None should return empty dict."""
         assert as_dict(None) == {}
     
-    def test_non_dict_returns_empty_dict(self):
+    def test_non_dict_returns_empty_dict(self) -> None:
         """Non-dict types should return empty dict."""
         assert as_dict("string") == {}
         assert as_dict(123) == {}
@@ -186,7 +186,7 @@ class TestAsDictFunction:
 class TestSanitizeLlmResponse:
     """Test the comprehensive sanitize_llm_response function."""
     
-    def test_full_sanitization(self):
+    def test_full_sanitization(self) -> None:
         """Test sanitization with mixed valid and invalid values."""
         schema = {
             "topics": (list, []),
@@ -210,7 +210,7 @@ class TestSanitizeLlmResponse:
         assert result["importance"] == 0.8
         assert result["is_worthy"] is True
     
-    def test_missing_fields_use_defaults(self):
+    def test_missing_fields_use_defaults(self) -> None:
         """Missing fields should use schema defaults."""
         schema = {
             "topics": (list, []),
@@ -222,7 +222,7 @@ class TestSanitizeLlmResponse:
         assert result["topics"] == []
         assert result["content"] == "default content"
     
-    def test_non_dict_response_handled(self):
+    def test_non_dict_response_handled(self) -> None:
         """Non-dict responses should be treated as empty."""
         schema = {
             "topics": (list, []),
@@ -238,18 +238,18 @@ class TestSanitizeLlmResponse:
 class TestSafeGetNested:
     """Test safe_get_nested for traversing nested dicts."""
     
-    def test_valid_path(self):
+    def test_valid_path(self) -> None:
         """Valid nested paths should return correct value."""
         data = {"a": {"b": {"c": "value"}}}
         assert safe_get_nested(data, "a", "b", "c") == "value"
     
-    def test_missing_key_returns_default(self):
+    def test_missing_key_returns_default(self) -> None:
         """Missing keys should return default."""
         data = {"a": {"b": "value"}}
         assert safe_get_nested(data, "a", "x", "y") is None
         assert safe_get_nested(data, "a", "x", "y", default="missing") == "missing"
     
-    def test_non_dict_intermediate_returns_default(self):
+    def test_non_dict_intermediate_returns_default(self) -> None:
         """Non-dict intermediate values should return default."""
         data = {"a": "not_a_dict"}
         assert safe_get_nested(data, "a", "b") is None
@@ -258,7 +258,7 @@ class TestSafeGetNested:
 class TestEpisodeModelIntegration:
     """Test that Episode model instantiates correctly with sanitized values."""
     
-    def test_episode_with_all_nulls_sanitized(self):
+    def test_episode_with_all_nulls_sanitized(self) -> None:
         """Episode should create successfully with sanitized null values."""
         # Simulate LLM response with nulls
         llm_response = {
@@ -300,7 +300,7 @@ class TestEpisodeModelIntegration:
         assert episode.importance == 0.5
         assert episode.memory_type == MemoryType.EPISODIC
     
-    def test_episode_with_wrong_types_sanitized(self):
+    def test_episode_with_wrong_types_sanitized(self) -> None:
         """Episode should handle wrong types gracefully."""
         # Simulate LLM response with wrong types
         llm_response = {
@@ -338,7 +338,7 @@ class TestEpisodeModelIntegration:
 class TestFactModelIntegration:
     """Test that Fact model instantiates correctly with sanitized values."""
     
-    def test_fact_with_nulls_sanitized(self):
+    def test_fact_with_nulls_sanitized(self) -> None:
         """Fact should create successfully with sanitized null values."""
         llm_response = {
             "content": None,
@@ -370,7 +370,7 @@ class TestFactModelIntegration:
 class TestSummaryModelIntegration:
     """Test that Summary model instantiates correctly with sanitized values."""
     
-    def test_summary_with_nulls_sanitized(self):
+    def test_summary_with_nulls_sanitized(self) -> None:
         """Summary should create successfully with sanitized null values."""
         llm_response = {
             "summary": None,
@@ -399,7 +399,7 @@ class TestSummaryModelIntegration:
 class TestMalformedLlmResponses:
     """Test handling of various malformed LLM response patterns."""
     
-    def test_completely_empty_response(self):
+    def test_completely_empty_response(self) -> None:
         """Empty dict response should use all defaults."""
         schema = {
             "topics": (list, []),
@@ -413,7 +413,7 @@ class TestMalformedLlmResponses:
         assert result["content"] == "empty"
         assert result["importance"] == 0.5
     
-    def test_extra_fields_ignored(self):
+    def test_extra_fields_ignored(self) -> None:
         """Extra fields not in schema should be ignored."""
         schema = {
             "topics": (list, []),
@@ -430,13 +430,13 @@ class TestMalformedLlmResponses:
         assert result == {"topics": ["a", "b"]}
         assert "extra_field" not in result
     
-    def test_nested_nulls_in_lists(self):
+    def test_nested_nulls_in_lists(self) -> None:
         """Lists containing nulls should pass through (null handling is per-item)."""
         # as_list doesn't filter contents, just ensures it's a list
         assert as_list([None, "valid", None]) == [None, "valid", None]
         assert as_list(["a", None, "b"]) == ["a", None, "b"]
     
-    def test_deeply_nested_dict_as_value(self):
+    def test_deeply_nested_dict_as_value(self) -> None:
         """Dict value should be returned as empty dict for non-dict inputs."""
         assert as_dict({"nested": {"deeply": {"value": 123}}}) == {"nested": {"deeply": {"value": 123}}}
 
@@ -444,37 +444,37 @@ class TestMalformedLlmResponses:
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
     
-    def test_unicode_strings(self):
+    def test_unicode_strings(self) -> None:
         """Unicode strings should pass through correctly."""
         assert as_str("한국어") == "한국어"
         assert as_str("日本語") == "日本語"
         assert as_str("emoji 🎉") == "emoji 🎉"
     
-    def test_very_long_strings(self):
+    def test_very_long_strings(self) -> None:
         """Very long strings should pass through."""
         long_string = "x" * 10000
         assert as_str(long_string) == long_string
     
-    def test_very_large_numbers(self):
+    def test_very_large_numbers(self) -> None:
         """Very large numbers should convert correctly."""
         assert as_float(1e10) == 1e10
         assert as_float("1e10") == 1e10
     
-    def test_negative_numbers(self):
+    def test_negative_numbers(self) -> None:
         """Negative numbers should convert correctly."""
         assert as_float(-0.5) == -0.5
         assert as_float("-0.5") == -0.5
     
-    def test_float_precision(self):
+    def test_float_precision(self) -> None:
         """Float precision should be maintained."""
         assert as_float(0.123456789) == 0.123456789
     
-    def test_whitespace_strings(self):
+    def test_whitespace_strings(self) -> None:
         """Whitespace strings should pass through unchanged."""
         assert as_str("   ") == "   "
         assert as_str("\t\n") == "\t\n"
     
-    def test_empty_containers(self):
+    def test_empty_containers(self) -> None:
         """Empty containers should be valid."""
         assert as_list([]) == []
         assert as_dict({}) == {}

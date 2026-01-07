@@ -16,7 +16,13 @@ except ImportError:
 
 @dataclass
 class SearchResult:
-    """Result from vector similarity search."""
+    """Represents a single vector similarity match returned by FAISS.
+
+    Attributes:
+        id: FAISS internal index ID for the match.
+        score: Similarity score (higher is more similar for inner-product indices).
+        distance: Distance metric (lower is more similar for L2 indices).
+    """
     id: int              # FAISS index ID
     score: float         # Similarity score (higher = more similar)
     distance: float      # L2 distance (lower = more similar)
@@ -35,13 +41,12 @@ class VectorStore:
     - Supports incremental additions and persistence
     """
     
-    def __init__(self, base_path: Path, dimension: int = 1536):
-        """
-        Initialize vector store.
-        
+    def __init__(self, base_path: Path, dimension: int = 1536) -> None:
+        """Initialize a FAISS-backed vector store with per-entity indices.
+
         Args:
-            base_path: Directory for storing index files
-            dimension: Embedding dimension
+            base_path: Base path used to derive index filenames on disk.
+            dimension: Embedding dimensionality expected by all indices.
         """
         self.base_path = base_path
         self.dimension = dimension
@@ -56,15 +61,29 @@ class VectorStore:
         self._load_or_create_indices()
     
     def _index_path(self, name: str) -> Path:
-        """Get path for an index file."""
+        """Return the on-disk path for the FAISS index with the given name.
+
+        Args:
+            name: Index name (e.g., "episodes", "facts", "summaries").
+
+        Returns:
+            Full filesystem path for the `.faiss` index file.
+        """
         return self.base_path.parent / f"{self.base_path.stem}_{name}.faiss"
     
     def _id_map_path(self, name: str) -> Path:
-        """Get path for ID mapping file."""
+        """Return the on-disk path for the record-ID mapping file.
+
+        Args:
+            name: Index name (e.g., "episodes", "facts", "summaries").
+
+        Returns:
+            Full filesystem path for the `.npy` ID map file.
+        """
         return self.base_path.parent / f"{self.base_path.stem}_{name}_ids.npy"
     
-    def _load_or_create_indices(self):
-        """Load existing indices or create new ones."""
+    def _load_or_create_indices(self) -> None:
+        """Load existing indices from disk or create fresh empty indices."""
         for name in ["episodes", "facts", "summaries"]:
             index_path = self._index_path(name)
             id_map_path = self._id_map_path(name)
@@ -77,11 +96,19 @@ class VectorStore:
                     self._id_maps[name] = []
             else:
                 # Create flat L2 index (exact search)
-                self._indices[name] = faiss.IndexFlatIP(self.dimension)  # Inner product for cosine sim
+                # Use inner-product on unit-normalized vectors to compute cosine similarity.
+                self._indices[name] = faiss.IndexFlatIP(self.dimension)
                 self._id_maps[name] = []
     
     def _normalize(self, vectors: np.ndarray) -> np.ndarray:
-        """Normalize vectors for cosine similarity via inner product."""
+        """L2-normalize vectors so inner product corresponds to cosine similarity.
+
+        Args:
+            vectors: Array of vectors shaped (n, d).
+
+        Returns:
+            Normalized array with the same shape as `vectors`.
+        """
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         norms[norms == 0] = 1  # Avoid division by zero
         return vectors / norms
@@ -92,16 +119,18 @@ class VectorStore:
         record_id: str,
         embedding: np.ndarray
     ) -> int:
-        """
-        Add a single vector to an index.
-        
+        """Add a single embedding vector to the named index.
+
         Args:
-            index_name: "episodes", "facts", or "summaries"
-            record_id: Database record ID
-            embedding: Vector embedding
-            
+            index_name: Index name ("episodes", "facts", or "summaries").
+            record_id: Database record identifier associated with this vector.
+            embedding: Embedding vector; will be cast to `np.float32` and normalized.
+
         Returns:
-            FAISS index ID
+            The FAISS internal ID assigned to the newly added vector.
+
+        Raises:
+            ValueError: If `index_name` is not a known index.
         """
         if index_name not in self._indices:
             raise ValueError(f"Unknown index: {index_name}")
@@ -123,16 +152,19 @@ class VectorStore:
         record_ids: list[str],
         embeddings: np.ndarray
     ) -> list[int]:
-        """
-        Add multiple vectors to an index.
-        
+        """Add multiple embedding vectors to the named index.
+
         Args:
-            index_name: "episodes", "facts", or "summaries"
-            record_ids: List of database record IDs
-            embeddings: 2D array of embeddings
-            
+            index_name: Index name ("episodes", "facts", or "summaries").
+            record_ids: Database record identifiers associated with each vector.
+            embeddings: Embedding matrix shaped (n, d); will be cast and normalized.
+
         Returns:
-            List of FAISS index IDs
+            A list of FAISS IDs corresponding to the added vectors.
+
+        Raises:
+            ValueError: If `index_name` is not a known index.
+            ValueError: If `record_ids` length does not match number of embeddings.
         """
         if index_name not in self._indices:
             raise ValueError(f"Unknown index: {index_name}")
@@ -160,17 +192,19 @@ class VectorStore:
         k: int = 10,
         threshold: Optional[float] = None
     ) -> list[tuple[str, float]]:
-        """
-        Search for similar vectors.
-        
+        """Search for vectors similar to `query_embedding`.
+
         Args:
-            index_name: "episodes", "facts", or "summaries"
-            query_embedding: Query vector
-            k: Number of results
-            threshold: Minimum similarity score (0-1 for cosine)
-            
+            index_name: Index name ("episodes", "facts", or "summaries").
+            query_embedding: Query embedding vector; will be cast and normalized.
+            k: Maximum number of results to return.
+            threshold: Optional minimum similarity threshold (cosine similarity).
+
         Returns:
-            List of (record_id, similarity_score) tuples
+            A list of `(record_id, similarity_score)` tuples.
+
+        Raises:
+            ValueError: If `index_name` is not a known index.
         """
         if index_name not in self._indices:
             raise ValueError(f"Unknown index: {index_name}")
@@ -208,18 +242,20 @@ class VectorStore:
         k: int = 10,
         threshold: Optional[float] = None
     ) -> list[tuple[str, float]]:
-        """
-        Search with ID filtering (post-filter approach).
-        
+        """Search while restricting matches to a given allowlist of record IDs.
+
+        This uses a post-filter strategy (search broadly, then filter), which avoids
+        rebuilding FAISS indices for each query at the cost of extra search work.
+
         Args:
-            index_name: Index to search
-            query_embedding: Query vector
-            valid_ids: Set of record IDs to include
-            k: Number of results
-            threshold: Minimum similarity score
-            
+            index_name: Index name to search.
+            query_embedding: Query embedding vector.
+            valid_ids: Set of record IDs to include in the returned results.
+            k: Maximum number of results to return after filtering.
+            threshold: Optional minimum similarity threshold.
+
         Returns:
-            Filtered list of (record_id, similarity_score) tuples
+            A filtered list of `(record_id, similarity_score)` tuples.
         """
         # Search more than k to account for filtering
         raw_results = self.search(
@@ -234,8 +270,12 @@ class VectorStore:
         
         return filtered[:k]
     
-    def save(self):
-        """Persist all indices to disk."""
+    def save(self) -> None:
+        """Persist all indices and ID maps to disk.
+
+        Returns:
+            None.
+        """
         for name in self._indices:
             faiss.write_index(
                 self._indices[name],
@@ -247,7 +287,15 @@ class VectorStore:
             )
     
     def get_record_id(self, index_name: str, faiss_id: int) -> Optional[str]:
-        """Get record ID from FAISS ID."""
+        """Resolve a FAISS internal ID back to the corresponding record ID.
+
+        Args:
+            index_name: Index name to resolve within.
+            faiss_id: FAISS internal numeric ID.
+
+        Returns:
+            The associated record ID if present; otherwise None.
+        """
         if index_name not in self._id_maps:
             return None
         if faiss_id < 0 or faiss_id >= len(self._id_maps[index_name]):
@@ -255,7 +303,11 @@ class VectorStore:
         return self._id_maps[index_name][faiss_id]
     
     def get_statistics(self) -> dict:
-        """Get vector store statistics."""
+        """Return basic index statistics for monitoring/debugging.
+
+        Returns:
+            A dictionary keyed by index name containing count and dimension.
+        """
         return {
             name: {
                 "count": self._indices[name].ntotal,

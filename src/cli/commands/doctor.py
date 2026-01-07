@@ -2,13 +2,24 @@
 import click
 from rich.panel import Panel
 from rich.table import Table
+from typing import TYPE_CHECKING
 
 from ..render import console
 from src.services import DiagnosticsService
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
 
-def _get_components(ctx):
-    """Get pipeline components from context."""
+
+def _get_components(ctx: click.Context) -> "PipelineComponents":
+    """Get pipeline components from the Click context.
+
+    Args:
+        ctx: Click context with a `use_mock` flag stored in `ctx.obj`.
+
+    Returns:
+        A `PipelineComponents` instance created by `src.cli.get_pipeline_components`.
+    """
     from src.cli import get_pipeline_components
     return get_pipeline_components(ctx.obj.get('use_mock', False))
 
@@ -16,12 +27,19 @@ def _get_components(ctx):
 @click.command()
 @click.option('--dry', is_flag=True, help='Dry-run mode: inspect config only, no initialization')
 @click.pass_context
-def doctor(ctx, dry: bool):
+def doctor(ctx: click.Context, dry: bool) -> None:
     """
     Run system diagnostics and show configuration status.
     
     This command inspects configuration, provider selection, and bootstrap state
     without making any LLM calls or modifying data.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        dry: If True, only inspect configuration without initializing components.
+
+    Returns:
+        None.
     """
     use_mock = ctx.obj.get('use_mock', False)
     
@@ -31,8 +49,15 @@ def doctor(ctx, dry: bool):
         _doctor_full(ctx, use_mock)
 
 
-def _doctor_dry_run(use_mock: bool):
-    """Run doctor in dry-run mode."""
+def _doctor_dry_run(use_mock: bool) -> None:
+    """Run doctor in dry-run mode (no component initialization).
+
+    Args:
+        use_mock: If True, force mock-provider predictions.
+
+    Returns:
+        None.
+    """
     service = DiagnosticsService()
     result = service.run_dry_diagnostics(force_mock=use_mock)
     
@@ -134,8 +159,16 @@ def _doctor_dry_run(use_mock: bool):
     console.print("[dim]Run without --dry to see full diagnostics with initialized components.[/dim]")
 
 
-def _doctor_full(ctx, use_mock: bool):
-    """Run doctor with full component initialization."""
+def _doctor_full(ctx: click.Context, use_mock: bool) -> None:
+    """Run doctor with full component initialization.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        use_mock: If True, force mock providers for initialized components.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = DiagnosticsService(components=components)
     

@@ -400,7 +400,15 @@ Example with content:
     
     @classmethod
     def format_episodes_for_prompt(cls, episodes: list, max_chars: int = 4000) -> str:
-        """Format episodes for inclusion in prompts."""
+        """Format episodes for inclusion in prompts.
+
+        Args:
+            episodes: Episodes (objects or dicts) to format.
+            max_chars: Maximum character budget for the formatted output.
+
+        Returns:
+            A newline-delimited string suitable for prompt inclusion.
+        """
         lines = []
         total_chars = 0
         
@@ -428,7 +436,15 @@ Example with content:
     
     @classmethod
     def format_facts_for_prompt(cls, facts: list, max_chars: int = 2000) -> str:
-        """Format facts for inclusion in prompts."""
+        """Format facts for inclusion in prompts.
+
+        Args:
+            facts: Facts (objects or dicts) to format.
+            max_chars: Maximum character budget for the formatted output.
+
+        Returns:
+            A newline-delimited string suitable for prompt inclusion.
+        """
         lines = []
         total_chars = 0
         
@@ -457,7 +473,15 @@ Example with content:
     
     @classmethod
     def format_summaries_for_prompt(cls, summaries: list, max_chars: int = 3000) -> str:
-        """Format summaries for inclusion in prompts."""
+        """Format summaries for inclusion in prompts.
+
+        Args:
+            summaries: Summaries (objects or dicts) to format.
+            max_chars: Maximum character budget for the formatted output.
+
+        Returns:
+            A newline-delimited string suitable for prompt inclusion.
+        """
         lines = []
         total_chars = 0
         

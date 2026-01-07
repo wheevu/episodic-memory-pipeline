@@ -17,7 +17,14 @@ from ..utils import as_list, as_str
 
 @dataclass
 class SummarizationResult:
-    """Result of summarization."""
+    """Represents the outcome of summarizing a set of episodes.
+
+    Attributes:
+        summary: Generated summary object.
+        key_episode_ids: IDs of episodes identified as key contributors.
+        themes: Themes extracted from the episode set.
+        notable_changes: Notable changes detected across the time span.
+    """
     summary: Summary
     key_episode_ids: list[str]
     themes: list[str]
@@ -35,13 +42,12 @@ class Summarizer:
     - Summaries can be hierarchical (weekly → monthly)
     """
     
-    def __init__(self, llm: LLMProvider, max_episodes_per_summary: int = 20):
-        """
-        Initialize summarizer.
-        
+    def __init__(self, llm: LLMProvider, max_episodes_per_summary: int = 20) -> None:
+        """Initialize the summarizer.
+
         Args:
-            llm: LLM provider for summary generation
-            max_episodes_per_summary: Max episodes to include in one summary
+            llm: LLM provider used for summary generation.
+            max_episodes_per_summary: Maximum episodes to include in a single summary.
         """
         self.llm = llm
         self.max_episodes = max_episodes_per_summary
@@ -52,16 +58,18 @@ class Summarizer:
         topic: str,
         existing_summary: Optional[Summary] = None,
     ) -> SummarizationResult:
-        """
-        Generate a summary from episodes.
-        
+        """Generate a narrative summary from a set of topic-filtered episodes.
+
         Args:
-            episodes: Episodes to summarize (should be pre-filtered by topic)
-            topic: Topic being summarized
-            existing_summary: Previous summary to update (if any)
-            
+            episodes: Episodes to summarize (expected pre-filtered by topic).
+            topic: Topic being summarized.
+            existing_summary: Previous summary to update (currently unused).
+
         Returns:
-            SummarizationResult with new summary and metadata
+            A `SummarizationResult` containing the summary and extraction metadata.
+
+        Raises:
+            ValueError: If `episodes` is empty.
         """
         if not episodes:
             raise ValueError("Cannot summarize empty episode list")
@@ -142,9 +150,16 @@ class Summarizer:
         episodes: list[Episode], 
         key_events: list[str]
     ) -> list[str]:
-        """
-        Identify which episodes correspond to key events.
-        Uses simple text matching; could be enhanced with embeddings.
+        """Identify which episodes correspond to extracted key events.
+
+        Uses a simple word-overlap heuristic to keep this deterministic and cheap.
+
+        Args:
+            episodes: Episodes that were summarized.
+            key_events: Key event strings extracted by the LLM.
+
+        Returns:
+            A list of episode IDs aligned (roughly) to the key events list.
         """
         if not key_events:
             return []
@@ -171,10 +186,18 @@ class Summarizer:
         topic: str,
         level: int = 2
     ) -> Summary:
-        """
-        Create a higher-level summary from existing summaries.
-        
-        Used for monthly summaries from weekly, quarterly from monthly, etc.
+        """Create a higher-level summary by aggregating lower-level summaries.
+
+        Args:
+            summaries: Lower-level summaries to aggregate.
+            topic: Topic being summarized.
+            level: Summary level to assign (e.g., 2 for monthly).
+
+        Returns:
+            A synthesized `Summary` across the provided time span.
+
+        Raises:
+            ValueError: If `summaries` is empty.
         """
         if not summaries:
             raise ValueError("Cannot create higher-level summary from empty list")

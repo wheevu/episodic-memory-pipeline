@@ -77,11 +77,17 @@ class PipelineComponents:
 
 
 def _preload_local_embeddings(config: Config) -> Optional[LocalEmbeddingProvider]:
-    """
-    Preload local embedding model BEFORE FAISS imports.
-    
-    This is the critical step that prevents segfaults on macOS.
-    The model is cached globally so it only loads once.
+    """Preload local embedding model BEFORE FAISS imports.
+
+    This is the critical step that prevents segfaults on macOS. The model is cached
+    globally so it only loads once.
+
+    Args:
+        config: Pipeline configuration.
+
+    Returns:
+        The preloaded `LocalEmbeddingProvider` if local embeddings are selected;
+        otherwise None.
     """
     global _preloaded_embedding_model
     
@@ -99,16 +105,14 @@ def _preload_local_embeddings(config: Config) -> Optional[LocalEmbeddingProvider
     return None
 
 
-def _import_faiss_modules():
-    """
-    Import FAISS-related modules AFTER embedding model is loaded.
-    
-    These imports trigger FAISS native library initialization.
-    They MUST happen after SentenceTransformers is loaded to avoid
-    cleanup conflicts on macOS.
-    
+def _import_faiss_modules() -> Tuple[Any, ...]:
+    """Import FAISS-related modules AFTER embedding model is loaded.
+
+    These imports trigger FAISS native library initialization. They MUST happen after
+    SentenceTransformers is loaded to avoid cleanup conflicts on macOS.
+
     Returns:
-        Tuple of imported classes/modules
+        A tuple of imported classes/modules in the order expected by `get_components`.
     """
     # These imports load FAISS
     from src.storage import Database, VectorStore
@@ -226,7 +230,20 @@ def _create_embedding_provider(
     preloaded_model: Optional[LocalEmbeddingProvider],
     verbose: bool
 ) -> EmbeddingProvider:
-    """Create the appropriate embedding provider based on config."""
+    """Create the appropriate embedding provider based on config.
+
+    Args:
+        config: Pipeline configuration.
+        force_mock: If True, force mock embeddings regardless of config.
+        preloaded_model: Preloaded local model instance, if available.
+        verbose: If True, print status messages.
+
+    Returns:
+        An `EmbeddingProvider` instance.
+
+    Raises:
+        ValueError: If OpenAI embeddings are selected but `OPENAI_API_KEY` is missing.
+    """
     
     if force_mock or config.embedding_provider == "mock":
         if verbose:
@@ -276,7 +293,16 @@ def _create_llm_provider(
     force_mock: bool,
     verbose: bool
 ) -> LLMProvider:
-    """Create the appropriate LLM provider based on config."""
+    """Create the appropriate LLM provider based on config.
+
+    Args:
+        config: Pipeline configuration.
+        force_mock: If True, force mock LLM regardless of config.
+        verbose: If True, print status messages.
+
+    Returns:
+        An `LLMProvider` instance.
+    """
     
     if force_mock:
         if verbose:
@@ -308,8 +334,15 @@ def _create_llm_provider(
     return get_llm_provider("mock")
 
 
-def _log(message: str):
-    """Print a message using rich console if available, else plain print."""
+def _log(message: str) -> None:
+    """Print a message using Rich if available, else plain print.
+
+    Args:
+        message: Rich markup string (or plain text) to print.
+
+    Returns:
+        None.
+    """
     try:
         from rich.console import Console
         console = Console()
@@ -322,11 +355,19 @@ def _log(message: str):
 
 
 def is_initialized() -> bool:
-    """Check if bootstrap has been run."""
+    """Check if bootstrap has been run.
+
+    Returns:
+        True if `get_components()` has been invoked in this process; otherwise False.
+    """
     return _bootstrap_initialized
 
 
 def get_cached_embedding_model() -> Optional[LocalEmbeddingProvider]:
-    """Get the cached preloaded embedding model, if any."""
+    """Get the cached preloaded embedding model, if any.
+
+    Returns:
+        Cached `LocalEmbeddingProvider` instance if preloaded; otherwise None.
+    """
     return _preloaded_embedding_model
 

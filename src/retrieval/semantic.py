@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 from dataclasses import dataclass
 
+import numpy as np
+
 from ..models import Episode, Fact, Summary
 from ..storage import Database, VectorStore
 from ..embeddings import EmbeddingProvider
@@ -14,7 +16,15 @@ from ..embeddings import EmbeddingProvider
 
 @dataclass 
 class SemanticResult:
-    """Result of semantic retrieval."""
+    """Represents results of a semantic retrieval query.
+
+    Attributes:
+        episodes: Retrieved episodes (typically ranked by similarity).
+        facts: Retrieved facts (typically ranked by similarity).
+        summaries: Retrieved summaries (typically ranked by similarity).
+        query_embedding_time: Time spent embedding the query, in seconds.
+        search_time: Time spent performing vector search and DB hydration, in seconds.
+    """
     episodes: list[Episode]
     facts: list[Fact]
     summaries: list[Summary]
@@ -37,16 +47,15 @@ class SemanticRetriever:
         embedding_provider: EmbeddingProvider,
         top_k: int = 10,
         similarity_threshold: float = 0.7,
-    ):
-        """
-        Initialize semantic retriever.
-        
+    ) -> None:
+        """Initialize the semantic retriever.
+
         Args:
-            database: Database for metadata
-            vector_store: Vector store for similarity search
-            embedding_provider: Embedding model
-            top_k: Number of results per type
-            similarity_threshold: Minimum similarity score
+            database: Structured storage used to fetch full records by ID.
+            vector_store: Vector index used for similarity search.
+            embedding_provider: Provider used to embed the query text.
+            top_k: Default number of results to retrieve per memory type.
+            similarity_threshold: Minimum cosine similarity score to include.
         """
         self.database = database
         self.vector_store = vector_store
@@ -65,36 +74,35 @@ class SemanticRetriever:
         time_filter_until: Optional[datetime] = None,
         top_k: Optional[int] = None,
     ) -> SemanticResult:
-        """
-        Perform semantic search across memory types.
-        
+        """Perform semantic similarity search across episodes, facts, and summaries.
+
         Args:
-            query: Search query
-            search_episodes: Include episodes in search
-            search_facts: Include facts in search
-            search_summaries: Include summaries in search
-            topic_filter: Filter by topic
-            time_filter_since: Filter episodes after this time
-            time_filter_until: Filter episodes before this time
-            top_k: Override default top_k
-            
+            query: Natural language query to embed and search for.
+            search_episodes: If True, include episodes in the search.
+            search_facts: If True, include facts in the search.
+            search_summaries: If True, include summaries in the search.
+            topic_filter: Optional topic constraint applied during retrieval.
+            time_filter_since: Optional lower-bound time filter for episodes.
+            time_filter_until: Optional upper-bound time filter for episodes.
+            top_k: Optional override for the default `top_k`.
+
         Returns:
-            SemanticResult with ranked results
+            A `SemanticResult` containing retrieved items and timing metadata.
         """
         import time
         
         k = top_k or self.top_k
         
         # Embed query
-        t0 = time.time()
+        embed_start_time = time.time()
         query_embedding = self.embedding_provider.embed_text(query)
-        embed_time = time.time() - t0
+        embed_time = time.time() - embed_start_time
         
         episodes = []
         facts = []
         summaries = []
         
-        t0 = time.time()
+        search_start_time = time.time()
         
         # Search episodes
         if search_episodes:
@@ -118,7 +126,7 @@ class SemanticRetriever:
             )
             summaries = summary_results
         
-        search_time = time.time() - t0
+        search_time = time.time() - search_start_time
         
         return SemanticResult(
             episodes=episodes,
@@ -130,13 +138,24 @@ class SemanticRetriever:
     
     def _search_episodes(
         self,
-        query_embedding,
+        query_embedding: np.ndarray,
         k: int,
         topic_filter: Optional[str],
         time_since: Optional[datetime],
         time_until: Optional[datetime],
     ) -> list[Episode]:
-        """Search episodes with optional filtering."""
+        """Search episodes with optional topic/time filtering.
+
+        Args:
+            query_embedding: Embedded query vector.
+            k: Maximum number of episodes to return.
+            topic_filter: Optional topic constraint.
+            time_since: Optional start time filter.
+            time_until: Optional end time filter.
+
+        Returns:
+            A list of hydrated `Episode` objects.
+        """
         
         # If filtering, get valid IDs first
         if topic_filter or time_since or time_until:
@@ -177,11 +196,20 @@ class SemanticRetriever:
     
     def _search_facts(
         self,
-        query_embedding,
+        query_embedding: np.ndarray,
         k: int,
         topic_filter: Optional[str],
     ) -> list[Fact]:
-        """Search facts with optional filtering."""
+        """Search facts with optional topic filtering.
+
+        Args:
+            query_embedding: Embedded query vector.
+            k: Maximum number of facts to return.
+            topic_filter: Optional topic constraint.
+
+        Returns:
+            A list of hydrated `Fact` objects.
+        """
         
         if topic_filter:
             db_facts = self.database.get_facts(topic=topic_filter)
@@ -215,11 +243,20 @@ class SemanticRetriever:
     
     def _search_summaries(
         self,
-        query_embedding,
+        query_embedding: np.ndarray,
         k: int,
         topic_filter: Optional[str],
     ) -> list[Summary]:
-        """Search summaries with optional filtering."""
+        """Search summaries with optional topic filtering.
+
+        Args:
+            query_embedding: Embedded query vector.
+            k: Maximum number of summaries to return.
+            topic_filter: Optional topic constraint.
+
+        Returns:
+            A list of hydrated `Summary` objects.
+        """
         
         if topic_filter:
             db_summaries = self.database.get_summaries(topic=topic_filter)
@@ -256,10 +293,14 @@ class SemanticRetriever:
         episode: Episode,
         exclude_self: bool = True,
     ) -> SemanticResult:
-        """
-        Find memories related to a given episode.
-        
-        Useful for showing context or finding contradictions.
+        """Find memories semantically related to a given episode.
+
+        Args:
+            episode: Episode to use as the query seed.
+            exclude_self: If True, remove the input episode from results.
+
+        Returns:
+            A `SemanticResult` containing items related to the episode.
         """
         # Use episode's embedding text as query
         query_text = episode.to_embedding_text()

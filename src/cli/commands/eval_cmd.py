@@ -3,13 +3,24 @@ import click
 from pathlib import Path
 from rich.panel import Panel
 from rich.table import Table
+from typing import TYPE_CHECKING
 
 from ..render import console, render_eval_metrics, render_eval_comparison
 from src.services import EvaluationService
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
 
-def _get_components(ctx):
-    """Get pipeline components from context."""
+
+def _get_components(ctx: click.Context) -> "PipelineComponents":
+    """Get pipeline components from the Click context.
+
+    Args:
+        ctx: Click context with a `use_mock` flag stored in `ctx.obj`.
+
+    Returns:
+        A `PipelineComponents` instance created by `src.cli.get_pipeline_components`.
+    """
     from src.cli import get_pipeline_components
     return get_pipeline_components(ctx.obj.get('use_mock', False))
 
@@ -19,8 +30,18 @@ def _get_components(ctx):
 @click.option('--k', default=5, help='K value for precision@k metric')
 @click.option('--verbose', '-v', is_flag=True, help='Show detailed output')
 @click.pass_context
-def eval_cmd(ctx, scenario: str, k: int, verbose: bool):
-    """Run evaluation metrics on the memory pipeline (legacy command)."""
+def eval_cmd(ctx: click.Context, scenario: str, k: int, verbose: bool) -> None:
+    """Run evaluation metrics on the memory pipeline (legacy command).
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        scenario: Evaluation scenario identifier to run.
+        k: K value for precision@k metric.
+        verbose: If True, show more detailed output.
+
+    Returns:
+        None.
+    """
     # Delegate to eval_run for backwards compatibility
     ctx.invoke(eval_run, scenario=scenario, k=k, verbose=verbose, save=False)
 
@@ -32,8 +53,20 @@ def eval_cmd(ctx, scenario: str, k: int, verbose: bool):
 @click.option('--save/--no-save', default=True, help='Save run to runs/eval/')
 @click.option('--out', type=click.Path(), help='Custom output directory')
 @click.pass_context
-def eval_run(ctx, scenario: str, k: int, verbose: bool, save: bool, out: str):
-    """Run a versioned evaluation and optionally save results."""
+def eval_run(ctx: click.Context, scenario: str, k: int, verbose: bool, save: bool, out: str) -> None:
+    """Run a versioned evaluation and optionally save results.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        scenario: Evaluation scenario identifier to run.
+        k: K value for precision@k metric.
+        verbose: If True, show more detailed output.
+        save: If True, persist results to `runs/eval/`.
+        out: Optional custom output directory path.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = EvaluationService(components)
     
@@ -83,8 +116,17 @@ def eval_run(ctx, scenario: str, k: int, verbose: bool, save: bool, out: str):
 @click.argument('run_a')
 @click.argument('run_b')
 @click.pass_context
-def eval_compare(ctx, run_a: str, run_b: str):
-    """Compare two evaluation runs."""
+def eval_compare(ctx: click.Context, run_a: str, run_b: str) -> None:
+    """Compare two evaluation runs.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        run_a: Run ID for the first evaluation run.
+        run_b: Run ID for the second evaluation run.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = EvaluationService(components)
     
@@ -110,8 +152,16 @@ def eval_compare(ctx, run_a: str, run_b: str):
 @click.command('eval-list')
 @click.option('--limit', '-n', default=10, help='Maximum number of runs to show')
 @click.pass_context
-def eval_list(ctx, limit: int):
-    """List available evaluation runs."""
+def eval_list(ctx: click.Context, limit: int) -> None:
+    """List available evaluation runs.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        limit: Maximum number of runs to display.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = EvaluationService(components)
     

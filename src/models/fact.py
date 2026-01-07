@@ -59,11 +59,16 @@ class Fact(BaseModel):
     source_episode_ids: list[str] = Field(default_factory=list)
     
     class Config:
+        """Pydantic model configuration."""
         use_enum_values = True
     
     @property
     def is_current(self) -> bool:
-        """Check if fact is currently valid."""
+        """Return True if the fact is currently valid.
+
+        Returns:
+            True if within validity window, active, and not superseded.
+        """
         now = datetime.utcnow()
         if self.valid_until and self.valid_until < now:
             return False
@@ -72,14 +77,22 @@ class Fact(BaseModel):
         return self.is_active and self.superseded_by is None
     
     def to_embedding_text(self) -> str:
-        """Generate text for embedding."""
+        """Generate text representation for embedding.
+
+        Returns:
+            A compact string representation used for embedding generation.
+        """
         parts = [self.content]
         parts.append(f"Category: {self.category}")
         parts.append(f"Topic: {self.topic}")
         return " | ".join(parts)
     
     def to_db_row(self) -> dict:
-        """Convert to database row format."""
+        """Convert the fact to a database row dictionary.
+
+        Returns:
+            A dictionary suitable for parameterized SQL insertion/update.
+        """
         import json
         return {
             "id": self.id,
@@ -99,10 +112,25 @@ class Fact(BaseModel):
     
     @classmethod
     def from_db_row(cls, row: dict) -> "Fact":
-        """Create Fact from database row."""
+        """Create a `Fact` from a database row dictionary.
+
+        Args:
+            row: Database row mapping (dict or dict-like) containing fact fields.
+
+        Returns:
+            A populated `Fact` instance.
+        """
         import json
         
-        def parse_datetime(val):
+        def parse_datetime(val: Optional[object]) -> Optional[datetime]:
+            """Parse a database datetime field into a `datetime` instance.
+
+            Args:
+                val: Value from the database row; may be None, a datetime, or ISO string.
+
+            Returns:
+                A `datetime` if parsable; otherwise None.
+            """
             if val is None:
                 return None
             if isinstance(val, datetime):

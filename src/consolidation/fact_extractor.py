@@ -17,7 +17,14 @@ from ..utils import as_list, as_str, as_float, as_dict
 
 @dataclass
 class FactExtractionResult:
-    """Result of fact extraction."""
+    """Represents the outcome of extracting facts from a set of episodes.
+
+    Attributes:
+        new_facts: Facts newly created from the provided episodes.
+        updated_facts: Pairs of (old_fact_id, new_fact) representing updates.
+        contradicted_fact_ids: IDs of existing facts deemed contradicted.
+        source_episode_ids: Episode IDs that served as evidence/provenance.
+    """
     new_facts: list[Fact]
     updated_facts: list[tuple[str, Fact]]  # (old_id, new_fact)
     contradicted_fact_ids: list[str]
@@ -35,12 +42,11 @@ class FactExtractor:
     - Provenance is always maintained
     """
     
-    def __init__(self, llm: LLMProvider):
-        """
-        Initialize fact extractor.
-        
+    def __init__(self, llm: LLMProvider) -> None:
+        """Initialize the fact extractor.
+
         Args:
-            llm: LLM provider for extraction
+            llm: LLM provider used to perform structured fact extraction.
         """
         self.llm = llm
     
@@ -48,18 +54,21 @@ class FactExtractor:
         self,
         episodes: list[Episode],
         topic: str,
-        existing_facts: list[Fact] = None,
+        existing_facts: Optional[list[Fact]] = None,
     ) -> FactExtractionResult:
-        """
-        Extract facts from episodes, considering existing facts.
-        
+        """Extract stable facts from episodes, considering existing facts.
+
         Args:
-            episodes: Episodes to extract facts from
-            topic: Topic context for extraction
-            existing_facts: Currently known facts (may be updated/contradicted)
-            
+            episodes: Episodes to extract facts from.
+            topic: Topic context used in the extraction prompt.
+            existing_facts: Currently known facts (may be updated/contradicted).
+
         Returns:
-            FactExtractionResult with new/updated/contradicted facts
+            A `FactExtractionResult` containing new, updated, and contradicted facts.
+
+        Raises:
+            json.JSONDecodeError: If the LLM returns invalid JSON (caught and handled).
+            KeyError: If expected keys are missing in the response (caught and handled).
         """
         existing_facts = existing_facts or []
         
@@ -108,7 +117,17 @@ class FactExtractor:
         episodes: list[Episode],
         existing_facts: list[Fact]
     ) -> FactExtractionResult:
-        """Process LLM extraction result into structured facts."""
+        """Convert an LLM extraction payload into structured `Fact` objects.
+
+        Args:
+            result: Parsed JSON payload from the LLM.
+            topic: Topic label applied to created/updated facts.
+            episodes: Episodes used as evidence for provenance.
+            existing_facts: Existing facts used for update/contradiction matching.
+
+        Returns:
+            A `FactExtractionResult` with normalized `Fact` objects.
+        """
         
         episode_ids = [ep.id for ep in episodes]
         new_facts = []
@@ -116,6 +135,8 @@ class FactExtractor:
         contradicted_ids = []
         
         # Create lookup for existing facts
+        # The prompt asks the LLM to refer to existing facts by a short, human-friendly
+        # identifier prefix (first 8 chars) rather than a full UUID.
         existing_by_id = {f.id[:8]: f for f in existing_facts}
         
         # Sanitize list fields using centralized helpers
@@ -189,10 +210,13 @@ class FactExtractor:
         )
     
     def merge_similar_facts(self, facts: list[Fact]) -> list[Fact]:
-        """
-        Merge semantically similar facts.
-        
-        Uses simple heuristics; could be enhanced with embeddings.
+        """Merge semantically similar facts using simple heuristics.
+
+        Args:
+            facts: Facts to merge.
+
+        Returns:
+            A list of facts where highly similar entries have been combined.
         """
         if len(facts) <= 1:
             return facts
@@ -225,7 +249,15 @@ class FactExtractor:
         return merged
     
     def _are_similar(self, fact1: Fact, fact2: Fact) -> bool:
-        """Check if two facts are similar enough to merge."""
+        """Return True if two facts are similar enough to merge.
+
+        Args:
+            fact1: First fact.
+            fact2: Second fact.
+
+        Returns:
+            True if the facts should be considered merge candidates.
+        """
         # Same topic and category
         if fact1.topic != fact2.topic or fact1.category != fact2.category:
             return False
@@ -238,10 +270,19 @@ class FactExtractor:
         union = len(words1 | words2)
         
         jaccard = intersection / union if union > 0 else 0
+        # A higher threshold biases toward precision over recall; we only merge when
+        # overlap is strong to avoid collapsing distinct facts.
         return jaccard > 0.5
     
     def _merge_facts(self, facts: list[Fact]) -> Fact:
-        """Merge multiple similar facts into one."""
+        """Merge multiple similar facts into a single fact.
+
+        Args:
+            facts: Facts presumed similar by `_are_similar`.
+
+        Returns:
+            A merged `Fact` representing the strongest candidate.
+        """
         # Use the most recent, highest confidence fact as base
         facts = sorted(facts, key=lambda f: (f.confidence, f.created_at), reverse=True)
         best = facts[0]

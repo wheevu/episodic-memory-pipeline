@@ -64,7 +64,11 @@ class ConfigDiagnostics:
     
     @property
     def has_issues(self) -> bool:
-        """Check if there are any configuration issues."""
+        """Return True if there are any configuration issues.
+
+        Returns:
+            True if mock embeddings or mock LLM would be used; otherwise False.
+        """
         return self.will_use_mock_embeddings or self.will_use_mock_llm
 
 
@@ -315,7 +319,15 @@ def generate_fix_suggestions(
 
 
 def format_status_icon(status: bool, warning_if_false: bool = False) -> str:
-    """Return a Rich-formatted status icon for boolean status."""
+    """Return a Rich-formatted YES/NO status icon.
+
+    Args:
+        status: Boolean status value to render.
+        warning_if_false: If True, render a warning style when `status` is False.
+
+    Returns:
+        A Rich markup string representing the status.
+    """
     if status:
         return "[green]✓ YES[/green]"
     elif warning_if_false:
@@ -325,12 +337,27 @@ def format_status_icon(status: bool, warning_if_false: bool = False) -> str:
 
 
 def format_bool_display(value: bool) -> str:
-    """Display boolean as colored YES/NO."""
+    """Display a boolean as colored YES/NO.
+
+    Args:
+        value: Boolean value to render.
+
+    Returns:
+        A Rich markup string representing the boolean.
+    """
     return "[green]YES[/green]" if value else "[dim]NO[/dim]"
 
 
 def format_env_value(value: Optional[str], default: str = "[dim]not set[/dim]") -> str:
-    """Format an environment variable value for display."""
+    """Format an environment variable value for display.
+
+    Args:
+        value: Environment variable value, or None if not set.
+        default: Default Rich markup string if `value` is None.
+
+    Returns:
+        A Rich markup string for the environment variable value.
+    """
     if value is None:
         return default
     return f"[cyan]{value}[/cyan]"

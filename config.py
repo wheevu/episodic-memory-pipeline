@@ -16,8 +16,8 @@ class Config:
     
     # Paths
     base_path: Path = field(default_factory=lambda: Path(__file__).parent)
-    database_path: Path = field(default=None)
-    vector_index_path: Path = field(default=None)
+    database_path: Optional[Path] = field(default=None)
+    vector_index_path: Optional[Path] = field(default=None)
     
     # Embedding configuration (default: local with BGE-M3)
     embedding_provider: str = "local"  # "local", "openai", "ollama", or "mock"
@@ -49,7 +49,17 @@ class Config:
     narrative_max_episodes: int = 50
     similarity_threshold: float = 0.7
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Finalize configuration by applying defaults and environment overrides.
+
+        This runs after dataclass initialization to:
+        - Fill in default filesystem paths.
+        - Read configuration overrides from environment variables.
+        - Derive embedding dimensions for known models/providers (when not explicitly set).
+
+        Returns:
+            None.
+        """
         # Set default paths relative to base
         if self.database_path is None:
             self.database_path = self.base_path / "data" / "memory.db"
@@ -90,8 +100,12 @@ class Config:
         # Ensure data directory exists
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
     
-    def _configure_embedding_dimension(self):
-        """Set embedding dimension based on provider and model."""
+    def _configure_embedding_dimension(self) -> None:
+        """Set embedding dimension based on provider and model.
+
+        Returns:
+            None.
+        """
         # Only update if not explicitly set via environment
         if os.getenv("EMBEDDING_DIMENSION"):
             return

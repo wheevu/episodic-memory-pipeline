@@ -25,8 +25,12 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def parse_args():
-    """Parse command line arguments."""
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments.
+
+    Returns:
+        Parsed CLI arguments namespace.
+    """
     parser = argparse.ArgumentParser(
         description="Bootstrap demo data for the Episodic Memory Pipeline"
     )
@@ -65,14 +69,33 @@ def parse_args():
     return parser.parse_args()
 
 
-def log(message: str, quiet: bool = False):
-    """Print a message unless quiet mode is enabled."""
+def log(message: str, quiet: bool = False) -> None:
+    """Print a message unless quiet mode is enabled.
+
+    Args:
+        message: Message to print.
+        quiet: If True, suppress output.
+
+    Returns:
+        None.
+    """
     if not quiet:
         print(message)
 
 
 def load_fixtures(fixtures_path: Path) -> dict:
-    """Load fixtures from JSON file."""
+    """Load fixtures from a JSON file.
+
+    Args:
+        fixtures_path: Path to the fixtures JSON file.
+
+    Returns:
+        Parsed fixtures dictionary.
+
+    Raises:
+        FileNotFoundError: If `fixtures_path` does not exist.
+        json.JSONDecodeError: If the fixtures file is not valid JSON.
+    """
     if not fixtures_path.exists():
         raise FileNotFoundError(f"Fixtures file not found: {fixtures_path}")
     
@@ -82,8 +105,17 @@ def load_fixtures(fixtures_path: Path) -> dict:
     return data
 
 
-def clean_data_directory(data_dir: Path, dry_run: bool = False, quiet: bool = False):
-    """Remove existing generated artifacts."""
+def clean_data_directory(data_dir: Path, dry_run: bool = False, quiet: bool = False) -> None:
+    """Remove existing generated artifacts from a data directory.
+
+    Args:
+        data_dir: Directory containing generated artifacts.
+        dry_run: If True, only report what would be removed.
+        quiet: If True, suppress output.
+
+    Returns:
+        None.
+    """
     patterns = ["*.db", "*.db-shm", "*.db-wal", "*.faiss", "*.npy", "*.index"]
     
     removed = []
@@ -99,8 +131,16 @@ def clean_data_directory(data_dir: Path, dry_run: bool = False, quiet: bool = Fa
         log("  No existing artifacts to remove", quiet)
 
 
-def ensure_data_directory(data_dir: Path, dry_run: bool = False):
-    """Create data directory if it doesn't exist."""
+def ensure_data_directory(data_dir: Path, dry_run: bool = False) -> bool:
+    """Create the data directory if it doesn't exist.
+
+    Args:
+        data_dir: Directory to create if missing.
+        dry_run: If True, do not create the directory.
+
+    Returns:
+        True if the directory would be/was created; otherwise False.
+    """
     if not data_dir.exists():
         if not dry_run:
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -275,8 +315,12 @@ def bootstrap_demo(
     return summary
 
 
-def main():
-    """Main entry point."""
+def main() -> None:
+    """Main entry point for demo bootstrapping.
+
+    Returns:
+        None.
+    """
     args = parse_args()
     
     # Handle clean option

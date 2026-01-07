@@ -17,7 +17,15 @@ from .extractor import EpisodeExtractor, ExtractionResult
 
 @dataclass
 class IngestionResult:
-    """Result of ingesting a piece of text."""
+    """Represents the outcome of ingesting a single input text.
+
+    Attributes:
+        success: Whether ingestion successfully stored an episode.
+        episode: The stored episode, if any.
+        classification: Classification stage output, if run.
+        extraction: Extraction stage output, if run.
+        reason: Human-readable reason for the outcome (stored/skipped).
+    """
     success: bool
     episode: Optional[Episode] = None
     classification: Optional[ClassificationResult] = None
@@ -25,7 +33,20 @@ class IngestionResult:
     reason: str = ""
     
     @classmethod
-    def skipped(cls, reason: str, classification: ClassificationResult = None) -> "IngestionResult":
+    def skipped(
+        cls,
+        reason: str,
+        classification: Optional[ClassificationResult] = None,
+    ) -> "IngestionResult":
+        """Create a result representing a skipped ingestion.
+
+        Args:
+            reason: Explanation for why the input was not stored.
+            classification: Classification output (if classification ran).
+
+        Returns:
+            An `IngestionResult` with `success=False`.
+        """
         return cls(
             success=False,
             classification=classification,
@@ -33,7 +54,22 @@ class IngestionResult:
         )
     
     @classmethod
-    def stored(cls, episode: Episode, classification: ClassificationResult, extraction: ExtractionResult) -> "IngestionResult":
+    def stored(
+        cls,
+        episode: Episode,
+        classification: ClassificationResult,
+        extraction: ExtractionResult,
+    ) -> "IngestionResult":
+        """Create a result representing a successfully stored episode.
+
+        Args:
+            episode: The stored episode.
+            classification: Classification output used for the decision.
+            extraction: Extraction output producing the episode structure.
+
+        Returns:
+            An `IngestionResult` with `success=True`.
+        """
         return cls(
             success=True,
             episode=episode,
@@ -66,16 +102,15 @@ class IngestionPipeline:
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
         worthiness_threshold: float = 0.6,
-    ):
-        """
-        Initialize ingestion pipeline.
-        
+    ) -> None:
+        """Initialize the ingestion pipeline with all required dependencies.
+
         Args:
-            database: Database for structured storage
-            vector_store: Vector store for embeddings
-            embedding_provider: Embedding model
-            llm: LLM for classification and extraction
-            worthiness_threshold: Minimum worthiness score to store
+            database: Structured storage for episodes/facts/summaries.
+            vector_store: Vector index for semantic retrieval.
+            embedding_provider: Provider used to embed episode text.
+            llm: Provider used for classification and extraction.
+            worthiness_threshold: Minimum classification confidence required to store.
         """
         self.database = database
         self.vector_store = vector_store
@@ -93,19 +128,18 @@ class IngestionPipeline:
         context: Optional[str] = None,
         force: bool = False,
     ) -> IngestionResult:
-        """
-        Ingest a piece of text into the memory system.
-        
+        """Ingest a piece of text and (optionally) store it as an episode.
+
         Args:
-            text: Raw input text
-            source: Source of input (chat, note, import)
-            session_id: Session identifier for grouping
-            timestamp: When this input occurred (defaults to now)
-            context: Additional context for classification
-            force: Skip worthiness check and store anyway
-            
+            text: Raw input text to process.
+            source: Source label for the input (e.g., "chat", "note", "import").
+            session_id: Optional session identifier used to group related inputs.
+            timestamp: When the input occurred; defaults to current UTC time.
+            context: Optional extra context for classification.
+            force: If True, bypass worthiness checks and store anyway.
+
         Returns:
-            IngestionResult with outcome and details
+            An `IngestionResult` describing whether storage occurred and why.
         """
         timestamp = timestamp or datetime.utcnow()
         
@@ -184,13 +218,20 @@ class IngestionPipeline:
         session_id: Optional[str] = None,
         timestamp: Optional[datetime] = None,
     ) -> list[IngestionResult]:
+        """Ingest multiple texts sequentially.
+
+        Args:
+            texts: Input texts to ingest.
+            source: Source label applied to all inputs.
+            session_id: Optional session identifier applied to all inputs.
+            timestamp: Optional timestamp applied to all inputs.
+
+        Returns:
+            A list of `IngestionResult`, one per input text.
         """
-        Ingest multiple texts.
-        
-        Note: This processes sequentially for now. 
-        Could be optimized with batched embedding.
-        """
-        results = []
+        # Note: This remains sequential to preserve ordering and simplicity; embedding
+        # could be batched later without changing the public API.
+        results: list[IngestionResult] = []
         for text in texts:
             result = self.ingest(
                 text,
@@ -202,7 +243,11 @@ class IngestionPipeline:
         return results
     
     def get_statistics(self) -> dict:
-        """Get pipeline statistics."""
+        """Return basic database and vector-store statistics.
+
+        Returns:
+            A dictionary with `database` and `vector_store` stats payloads.
+        """
         db_stats = self.database.get_statistics()
         vec_stats = self.vector_store.get_statistics()
         return {

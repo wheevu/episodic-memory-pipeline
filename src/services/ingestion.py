@@ -5,7 +5,7 @@ This module contains business logic for ingesting memories.
 Returns plain dataclasses - no Rich/Typer imports.
 """
 from dataclasses import dataclass
-from typing import Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.bootstrap import PipelineComponents
@@ -29,21 +29,28 @@ class IngestionService:
     for use by CLI commands or other consumers.
     """
     
-    def __init__(self, components: "PipelineComponents", worthiness_threshold: float = 0.6):
+    def __init__(self, components: "PipelineComponents", worthiness_threshold: float = 0.6) -> None:
         """
         Initialize the ingestion service.
         
         Args:
             components: Pipeline components from bootstrap
             worthiness_threshold: Minimum score to store a memory
+        
+        Returns:
+            None.
         """
         self.components = components
         self.worthiness_threshold = worthiness_threshold
         self._pipeline = None
     
     @property
-    def pipeline(self):
-        """Lazily create the ingestion pipeline."""
+    def pipeline(self) -> Any:
+        """Lazily create the ingestion pipeline.
+
+        Returns:
+            An initialized ingestion pipeline instance.
+        """
         if self._pipeline is None:
             self._pipeline = self.components.IngestionPipeline(
                 self.components.database,

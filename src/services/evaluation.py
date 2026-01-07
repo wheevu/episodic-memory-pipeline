@@ -45,7 +45,11 @@ class EvalRunResult:
     error: Optional[str] = None
     
     def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
+        """Convert to dictionary for JSON serialization.
+
+        Returns:
+            A JSON-serializable dictionary representation of this run.
+        """
         return {
             "run_id": self.run_id,
             "timestamp": self.timestamp,
@@ -71,7 +75,11 @@ class EvalComparison:
 
 
 def get_git_commit() -> Optional[str]:
-    """Get current git commit hash, if available."""
+    """Get current git commit hash, if available.
+
+    Returns:
+        Short git commit hash string if available; otherwise None.
+    """
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -87,7 +95,11 @@ def get_git_commit() -> Optional[str]:
 
 
 def generate_run_id() -> str:
-    """Generate a unique run ID based on timestamp."""
+    """Generate a unique run ID based on timestamp.
+
+    Returns:
+        A run identifier string suitable for directory naming.
+    """
     return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
 
@@ -103,20 +115,30 @@ class EvaluationService:
         self,
         components: "PipelineComponents",
         runs_dir: Optional[Path] = None
-    ):
+    ) -> None:
         """
         Initialize the evaluation service.
         
         Args:
             components: Pipeline components from bootstrap
             runs_dir: Directory for storing run outputs (default: runs/eval/)
+        
+        Returns:
+            None.
         """
         self.components = components
         self.runs_dir = runs_dir or Path("runs/eval")
         self._runner = None
     
-    def _get_runner(self, precision_k: int = 5):
-        """Create an evaluation runner."""
+    def _get_runner(self, precision_k: int = 5) -> Any:
+        """Create an evaluation runner.
+
+        Args:
+            precision_k: K value for precision@k metric.
+
+        Returns:
+            An `EvaluationRunner` instance from the bootstrap components.
+        """
         return self.components.EvaluationRunner(
             embedding_provider=self.components.embedding_provider,
             llm=self.components.llm,
@@ -124,7 +146,15 @@ class EvaluationService:
         )
     
     def _get_config(self, scenario: str, precision_k: int) -> EvalConfig:
-        """Build config snapshot from current components."""
+        """Build config snapshot from current components.
+
+        Args:
+            scenario: Scenario name to record.
+            precision_k: K used for precision@k metric.
+
+        Returns:
+            An `EvalConfig` snapshot describing the run configuration.
+        """
         from config import config
         
         emb = self.components.embedding_provider
@@ -298,7 +328,11 @@ class EvaluationService:
         )
     
     def list_runs(self) -> List[str]:
-        """List all available run IDs."""
+        """List all available run IDs.
+
+        Returns:
+            A list of run directory names in reverse chronological order.
+        """
         if not self.runs_dir.exists():
             return []
         

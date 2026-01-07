@@ -59,12 +59,16 @@ class Episode(BaseModel):
     embedding_id: Optional[int] = None
     
     class Config:
+        """Pydantic model configuration."""
         use_enum_values = True
     
     def to_embedding_text(self) -> str:
         """
         Generate text representation for embedding.
         Includes context that aids semantic similarity.
+
+        Returns:
+            A compact string representation used for embedding generation.
         """
         parts = [self.content]
         
@@ -77,7 +81,11 @@ class Episode(BaseModel):
         return " | ".join(parts)
     
     def to_db_row(self) -> dict:
-        """Convert to database row format."""
+        """Convert the episode to a database row dictionary.
+
+        Returns:
+            A dictionary suitable for parameterized SQL insertion/update.
+        """
         import json
         return {
             "id": self.id,
@@ -99,7 +107,14 @@ class Episode(BaseModel):
     
     @classmethod
     def from_db_row(cls, row: dict) -> "Episode":
-        """Create Episode from database row."""
+        """Create an `Episode` from a database row dictionary.
+
+        Args:
+            row: Database row mapping (dict or dict-like) containing episode fields.
+
+        Returns:
+            A populated `Episode` instance.
+        """
         import json
         return cls(
             id=row["id"],

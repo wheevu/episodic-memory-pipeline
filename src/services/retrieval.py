@@ -5,7 +5,7 @@ This module contains business logic for querying memories.
 Returns plain dataclasses - no Rich/Typer imports.
 """
 from dataclasses import dataclass, field
-from typing import Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.bootstrap import PipelineComponents
@@ -59,20 +59,27 @@ class RetrievalService:
     and provides a clean interface for use by CLI commands.
     """
     
-    def __init__(self, components: "PipelineComponents"):
+    def __init__(self, components: "PipelineComponents") -> None:
         """
         Initialize the retrieval service.
         
         Args:
             components: Pipeline components from bootstrap
+        
+        Returns:
+            None.
         """
         self.components = components
         self._engine = None
         self._consolidation = None
     
     @property
-    def engine(self):
-        """Lazily create the retrieval engine."""
+    def engine(self) -> Any:
+        """Lazily create the retrieval engine.
+
+        Returns:
+            An initialized retrieval engine instance.
+        """
         if self._engine is None:
             self._engine = self.components.RetrievalEngine(
                 self.components.database,
@@ -83,8 +90,12 @@ class RetrievalService:
         return self._engine
     
     @property
-    def consolidation(self):
-        """Lazily create the consolidation pipeline."""
+    def consolidation(self) -> Any:
+        """Lazily create the consolidation pipeline.
+
+        Returns:
+            An initialized consolidation pipeline instance.
+        """
         if self._consolidation is None:
             self._consolidation = self.components.ConsolidationPipeline(
                 self.components.database,

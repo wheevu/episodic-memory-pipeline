@@ -51,11 +51,19 @@ class Summary(BaseModel):
     
     @property
     def time_span_days(self) -> float:
-        """Calculate the time span covered in days."""
+        """Calculate the time span covered in days.
+
+        Returns:
+            The number of days covered by this summary.
+        """
         return (self.time_end - self.time_start).total_seconds() / 86400
     
     def to_embedding_text(self) -> str:
-        """Generate text for embedding."""
+        """Generate text representation for embedding.
+
+        Returns:
+            A compact string representation used for embedding generation.
+        """
         parts = [self.content]
         parts.append(f"Topic: {self.topic}")
         if self.key_events:
@@ -63,7 +71,11 @@ class Summary(BaseModel):
         return " | ".join(parts)
     
     def to_db_row(self) -> dict:
-        """Convert to database row format."""
+        """Convert the summary to a database row dictionary.
+
+        Returns:
+            A dictionary suitable for parameterized SQL insertion/update.
+        """
         import json
         return {
             "id": self.id,
@@ -83,10 +95,25 @@ class Summary(BaseModel):
     
     @classmethod
     def from_db_row(cls, row: dict) -> "Summary":
-        """Create Summary from database row."""
+        """Create a `Summary` from a database row dictionary.
+
+        Args:
+            row: Database row mapping (dict or dict-like) containing summary fields.
+
+        Returns:
+            A populated `Summary` instance.
+        """
         import json
         
-        def parse_datetime(val):
+        def parse_datetime(val: Optional[object]) -> Optional[datetime]:
+            """Parse a database datetime field into a `datetime` instance.
+
+            Args:
+                val: Value from the database row; may be None, a datetime, or ISO string.
+
+            Returns:
+                A `datetime` if parsable; otherwise None.
+            """
             if val is None:
                 return None
             if isinstance(val, datetime):

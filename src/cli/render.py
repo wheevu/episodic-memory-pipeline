@@ -13,7 +13,15 @@ console = Console()
 
 
 def format_status_icon(status: bool, warning_if_false: bool = False) -> str:
-    """Return a Rich-formatted status icon for boolean status."""
+    """Return a Rich-formatted YES/NO status icon.
+
+    Args:
+        status: Boolean status value to render.
+        warning_if_false: If True, render a warning style when `status` is False.
+
+    Returns:
+        A Rich markup string representing the status.
+    """
     if status:
         return "[green]✓ YES[/green]"
     elif warning_if_false:
@@ -23,24 +31,41 @@ def format_status_icon(status: bool, warning_if_false: bool = False) -> str:
 
 
 def format_bool_display(value: bool) -> str:
-    """Display boolean as colored YES/NO."""
+    """Display a boolean as colored YES/NO.
+
+    Args:
+        value: Boolean value to render.
+
+    Returns:
+        A Rich markup string representing the boolean.
+    """
     return "[green]YES[/green]" if value else "[dim]NO[/dim]"
 
 
 def format_env_value(value: Optional[str], default: str = "[dim]not set[/dim]") -> str:
-    """Format an environment variable value for display."""
+    """Format an environment variable value for display.
+
+    Args:
+        value: Environment variable value, or None if not set.
+        default: Default Rich markup string if `value` is None.
+
+    Returns:
+        A Rich markup string for the environment variable value.
+    """
     if value is None:
         return default
     return f"[cyan]{value}[/cyan]"
 
 
-def render_eval_metrics(metrics: Dict[str, Any], verbose: bool = False):
-    """
-    Render evaluation metrics in a formatted table.
-    
+def render_eval_metrics(metrics: Dict[str, Any], verbose: bool = False) -> None:
+    """Render evaluation metrics in a formatted table.
+
     Args:
-        metrics: Dictionary of metrics from EvalRunResult
-        verbose: Show additional details
+        metrics: Metrics dictionary (typically from `EvalRunResult.metrics`).
+        verbose: If True, show additional details when available.
+
+    Returns:
+        None.
     """
     # Summary counts
     counts = metrics.get("counts", {})
@@ -127,12 +152,14 @@ def render_eval_metrics(metrics: Dict[str, Any], verbose: bool = False):
         console.print(table4)
 
 
-def render_eval_comparison(comparison):
-    """
-    Render comparison between two evaluation runs.
-    
+def render_eval_comparison(comparison: Any) -> None:
+    """Render a comparison between two evaluation runs.
+
     Args:
-        comparison: EvalComparison object
+        comparison: `EvalComparison` object returned by `EvaluationService.compare_runs`.
+
+    Returns:
+        None.
     """
     # Warnings
     for warning in comparison.warnings:

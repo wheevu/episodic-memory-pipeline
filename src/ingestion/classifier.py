@@ -5,7 +5,7 @@ Determines whether input text contains information worth storing as memory.
 This is a crucial gate to prevent memory bloat and noise.
 """
 import json
-from typing import Optional
+from typing import Optional, cast
 from dataclasses import dataclass
 
 from ..llm import LLMProvider
@@ -15,7 +15,14 @@ from ..utils import as_bool, as_float, as_str
 
 @dataclass
 class ClassificationResult:
-    """Result of memory worthiness classification."""
+    """Represents the outcome of memory worthiness classification.
+
+    Attributes:
+        is_memory_worthy: Whether the input should be stored.
+        confidence: Confidence score for the decision (0.0-1.0).
+        reason: Short human-readable explanation.
+        memory_type: Suggested memory type label (e.g., "episodic", "fact", "none").
+    """
     is_memory_worthy: bool
     confidence: float
     reason: str
@@ -23,6 +30,14 @@ class ClassificationResult:
     
     @classmethod
     def not_worthy(cls, reason: str = "Not memory-worthy") -> "ClassificationResult":
+        """Create a deterministic "not worthy" result.
+
+        Args:
+            reason: Reason string for the decision.
+
+        Returns:
+            A `ClassificationResult` with `is_memory_worthy=False`.
+        """
         return cls(
             is_memory_worthy=False,
             confidence=1.0,
@@ -65,21 +80,26 @@ class MemoryWorthinessClassifier:
         r"\b(yesterday|last week|today i|this morning)\b",
     ]
     
-    def __init__(self, llm: LLMProvider, threshold: float = 0.6):
-        """
-        Initialize classifier.
-        
+    def __init__(self, llm: LLMProvider, threshold: float = 0.6) -> None:
+        """Initialize the classifier.
+
         Args:
-            llm: LLM provider for classification
-            threshold: Minimum confidence to consider worthy (default 0.6)
+            llm: LLM provider used for classification when heuristics are insufficient.
+            threshold: Minimum confidence to consider worthy (default: 0.6).
         """
         self.llm = llm
         self.threshold = threshold
         self._compile_patterns()
     
-    def _compile_patterns(self):
-        """Compile regex patterns for efficiency."""
+    def _compile_patterns(self) -> None:
+        """Compile regex patterns for fast repeated matching.
+
+        Returns:
+            None.
+        """
         import re
+        # Pre-compilation keeps classification latency low and avoids recompiling on
+        # each call. Patterns are case-insensitive by design.
         self._not_worthy_re = [
             re.compile(p, re.IGNORECASE) for p in self.NOT_WORTHY_PATTERNS
         ]
@@ -94,17 +114,16 @@ class MemoryWorthinessClassifier:
         context: Optional[str] = None,
         use_llm: bool = True
     ) -> ClassificationResult:
-        """
-        Classify whether text is memory-worthy.
-        
+        """Classify whether an input should be stored as memory.
+
         Args:
-            text: Input text to classify
-            previous_topic: Topic from previous turn (if any)
-            context: Additional context about the conversation
-            use_llm: Whether to use LLM for classification
-            
+            text: Input text to classify.
+            previous_topic: Previous conversational topic, if known.
+            context: Additional conversational context, if available.
+            use_llm: If True, use the LLM for ambiguous or richer cases.
+
         Returns:
-            ClassificationResult with decision and reasoning
+            A `ClassificationResult` with the decision and reasoning.
         """
         text = text.strip()
         
@@ -144,7 +163,17 @@ class MemoryWorthinessClassifier:
         previous_topic: Optional[str],
         context: Optional[str]
     ) -> ClassificationResult:
-        """Use LLM to classify memory worthiness."""
+        """Use the LLM to classify memory worthiness and type.
+
+        Args:
+            text: Input text to classify.
+            previous_topic: Previous topic context (or None).
+            context: Additional context (or None).
+
+        Returns:
+            A `ClassificationResult` based on the LLM response, or a conservative
+            fallback on parse failure.
+        """
         prompt = PromptTemplates.MEMORY_WORTHINESS.format(
             text=text,
             previous_topic=previous_topic or "none",
@@ -181,10 +210,18 @@ class MemoryWorthinessClassifier:
         texts: list[str],
         use_llm: bool = True
     ) -> list[ClassificationResult]:
-        """Classify multiple texts (uses heuristics + batched LLM when needed)."""
-        results = []
-        llm_needed = []
-        llm_indices = []
+        """Classify multiple texts, using heuristics first and LLM as needed.
+
+        Args:
+            texts: Input texts to classify.
+            use_llm: If True, run LLM classification for uncertain cases.
+
+        Returns:
+            A list of `ClassificationResult` aligned to the input order.
+        """
+        results: list[Optional[ClassificationResult]] = []
+        llm_needed: list[str] = []
+        llm_indices: list[int] = []
         
         # First pass: heuristics
         for i, text in enumerate(texts):
@@ -202,5 +239,7 @@ class MemoryWorthinessClassifier:
             for idx, text in zip(llm_indices, llm_needed):
                 results[idx] = self._llm_classify(text, None, None)
         
-        return results
+        # At this point, any `None` entries should have been filled by `_llm_classify`.
+        # We keep runtime behavior identical and simply cast for type-checkers.
+        return cast(list[ClassificationResult], results)
 

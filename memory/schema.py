@@ -13,7 +13,7 @@ import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Iterator
 from contextlib import contextmanager
 
 from memory.models import (
@@ -169,19 +169,36 @@ CREATE TABLE IF NOT EXISTS metadata (
 class DatabaseConnection:
     """Manages SQLite database connection and provides CRUD operations."""
     
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        """Initialize the schema-backed database connection manager.
+
+        Args:
+            db_path: Optional path to the SQLite database file. If not provided,
+                the configured default path is used.
+
+        Returns:
+            None.
+        """
         self.db_path = db_path or get_config().database_path
         self._ensure_schema()
     
-    def _ensure_schema(self):
-        """Create tables if they don't exist."""
+    def _ensure_schema(self) -> None:
+        """Create tables if they don't exist.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
             conn.commit()
     
     @contextmanager
-    def connect(self):
-        """Context manager for database connections."""
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        """Context manager for database connections.
+
+        Returns:
+            An iterator yielding a live `sqlite3.Connection`.
+        """
         conn = sqlite3.connect(
             self.db_path,
             detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
@@ -197,7 +214,14 @@ class DatabaseConnection:
     # =========================================================================
     
     def save_episode(self, episode: Episode) -> Episode:
-        """Insert or update an episode."""
+        """Insert or update an episode.
+
+        Args:
+            episode: Episode to persist.
+
+        Returns:
+            The saved episode.
+        """
         with self.connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO episodes (
@@ -234,7 +258,14 @@ class DatabaseConnection:
         return episode
     
     def get_episode(self, episode_id: str) -> Optional[Episode]:
-        """Retrieve an episode by ID."""
+        """Retrieve an episode by ID.
+
+        Args:
+            episode_id: Episode identifier.
+
+        Returns:
+            Matching `Episode` if found; otherwise None.
+        """
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM episodes WHERE id = ?", (episode_id,)
@@ -253,7 +284,20 @@ class DatabaseConnection:
         limit: int = 100,
         offset: int = 0,
     ) -> List[Episode]:
-        """Query episodes with filters."""
+        """Query episodes with optional filters.
+
+        Args:
+            memory_type: Optional memory type filter.
+            status: Optional status filter.
+            topic: Optional topic filter (matches within stored JSON array string).
+            since: Optional lower bound for `created_at`.
+            until: Optional upper bound for `created_at`.
+            limit: Maximum number of episodes to return.
+            offset: Offset for pagination.
+
+        Returns:
+            List of matching episodes ordered by `created_at` descending.
+        """
         query = "SELECT * FROM episodes WHERE 1=1"
         params = []
         
@@ -281,7 +325,14 @@ class DatabaseConnection:
             return [self._row_to_episode(row) for row in rows]
     
     def get_episodes_by_ids(self, episode_ids: List[str]) -> List[Episode]:
-        """Retrieve multiple episodes by their IDs."""
+        """Retrieve multiple episodes by their IDs.
+
+        Args:
+            episode_ids: Episode identifiers to fetch.
+
+        Returns:
+            List of matching episodes (order by `created_at` descending).
+        """
         if not episode_ids:
             return []
         
@@ -292,8 +343,16 @@ class DatabaseConnection:
             rows = conn.execute(query, episode_ids).fetchall()
             return [self._row_to_episode(row) for row in rows]
     
-    def update_episode_status(self, episode_id: str, status: MemoryStatus):
-        """Update the status of an episode."""
+    def update_episode_status(self, episode_id: str, status: MemoryStatus) -> None:
+        """Update the status of an episode.
+
+        Args:
+            episode_id: Episode identifier.
+            status: New status to set.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.execute(
                 "UPDATE episodes SET status = ? WHERE id = ?",
@@ -301,8 +360,16 @@ class DatabaseConnection:
             )
             conn.commit()
     
-    def update_episode_embedding_id(self, episode_id: str, embedding_id: int):
-        """Update the embedding ID for an episode."""
+    def update_episode_embedding_id(self, episode_id: str, embedding_id: int) -> None:
+        """Update the embedding ID for an episode.
+
+        Args:
+            episode_id: Episode identifier.
+            embedding_id: Vector store embedding identifier.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.execute(
                 "UPDATE episodes SET embedding_id = ? WHERE id = ?",
@@ -311,7 +378,14 @@ class DatabaseConnection:
             conn.commit()
     
     def _row_to_episode(self, row: sqlite3.Row) -> Episode:
-        """Convert a database row to an Episode object."""
+        """Convert a database row to an `Episode` object.
+
+        Args:
+            row: SQLite row containing episode fields.
+
+        Returns:
+            Parsed `Episode`.
+        """
         return Episode(
             id=row["id"],
             content=row["content"],
@@ -332,7 +406,14 @@ class DatabaseConnection:
     # =========================================================================
     
     def save_fact(self, fact: Fact) -> Fact:
-        """Insert or update a fact."""
+        """Insert or update a fact.
+
+        Args:
+            fact: Fact to persist.
+
+        Returns:
+            The saved fact.
+        """
         with self.connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO facts (
@@ -365,7 +446,14 @@ class DatabaseConnection:
         return fact
     
     def get_fact(self, fact_id: str) -> Optional[Fact]:
-        """Retrieve a fact by ID."""
+        """Retrieve a fact by ID.
+
+        Args:
+            fact_id: Fact identifier.
+
+        Returns:
+            Matching `Fact` if found; otherwise None.
+        """
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM facts WHERE id = ?", (fact_id,)
@@ -381,7 +469,17 @@ class DatabaseConnection:
         status: Optional[MemoryStatus] = None,
         limit: int = 100,
     ) -> List[Fact]:
-        """Query facts with filters."""
+        """Query facts with optional filters.
+
+        Args:
+            topic: Optional topic filter.
+            fact_type: Optional fact type filter.
+            status: Optional status filter.
+            limit: Maximum number of facts to return.
+
+        Returns:
+            List of matching facts ordered by `updated_at` descending.
+        """
         query = "SELECT * FROM facts WHERE 1=1"
         params = []
         
@@ -403,7 +501,14 @@ class DatabaseConnection:
             return [self._row_to_fact(row) for row in rows]
     
     def get_facts_by_ids(self, fact_ids: List[str]) -> List[Fact]:
-        """Retrieve multiple facts by their IDs."""
+        """Retrieve multiple facts by their IDs.
+
+        Args:
+            fact_ids: Fact identifiers to fetch.
+
+        Returns:
+            List of matching facts.
+        """
         if not fact_ids:
             return []
         
@@ -414,8 +519,16 @@ class DatabaseConnection:
             rows = conn.execute(query, fact_ids).fetchall()
             return [self._row_to_fact(row) for row in rows]
     
-    def update_fact_embedding_id(self, fact_id: str, embedding_id: int):
-        """Update the embedding ID for a fact."""
+    def update_fact_embedding_id(self, fact_id: str, embedding_id: int) -> None:
+        """Update the embedding ID for a fact.
+
+        Args:
+            fact_id: Fact identifier.
+            embedding_id: Vector store embedding identifier.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.execute(
                 "UPDATE facts SET embedding_id = ? WHERE id = ?",
@@ -424,7 +537,14 @@ class DatabaseConnection:
             conn.commit()
     
     def _row_to_fact(self, row: sqlite3.Row) -> Fact:
-        """Convert a database row to a Fact object."""
+        """Convert a database row to a `Fact` object.
+
+        Args:
+            row: SQLite row containing fact fields.
+
+        Returns:
+            Parsed `Fact`.
+        """
         return Fact(
             id=row["id"],
             content=row["content"],
@@ -444,7 +564,14 @@ class DatabaseConnection:
     # =========================================================================
     
     def save_summary(self, summary: Summary) -> Summary:
-        """Insert or update a summary."""
+        """Insert or update a summary.
+
+        Args:
+            summary: Summary to persist.
+
+        Returns:
+            The saved summary.
+        """
         with self.connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO summaries (
@@ -480,7 +607,14 @@ class DatabaseConnection:
         return summary
     
     def get_summary(self, summary_id: str) -> Optional[Summary]:
-        """Retrieve a summary by ID."""
+        """Retrieve a summary by ID.
+
+        Args:
+            summary_id: Summary identifier.
+
+        Returns:
+            Matching `Summary` if found; otherwise None.
+        """
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM summaries WHERE id = ?", (summary_id,)
@@ -496,7 +630,17 @@ class DatabaseConnection:
         since: Optional[datetime] = None,
         limit: int = 50,
     ) -> List[Summary]:
-        """Query summaries with filters."""
+        """Query summaries with optional filters.
+
+        Args:
+            topic: Optional topic filter.
+            status: Optional status filter.
+            since: Optional lower bound for `period_end`.
+            limit: Maximum number of summaries to return.
+
+        Returns:
+            List of matching summaries ordered by `period_end` descending.
+        """
         query = "SELECT * FROM summaries WHERE 1=1"
         params = []
         
@@ -518,7 +662,14 @@ class DatabaseConnection:
             return [self._row_to_summary(row) for row in rows]
     
     def get_summaries_by_ids(self, summary_ids: List[str]) -> List[Summary]:
-        """Retrieve multiple summaries by their IDs."""
+        """Retrieve multiple summaries by their IDs.
+
+        Args:
+            summary_ids: Summary identifiers to fetch.
+
+        Returns:
+            List of matching summaries.
+        """
         if not summary_ids:
             return []
         
@@ -529,8 +680,16 @@ class DatabaseConnection:
             rows = conn.execute(query, summary_ids).fetchall()
             return [self._row_to_summary(row) for row in rows]
     
-    def update_summary_embedding_id(self, summary_id: str, embedding_id: int):
-        """Update the embedding ID for a summary."""
+    def update_summary_embedding_id(self, summary_id: str, embedding_id: int) -> None:
+        """Update the embedding ID for a summary.
+
+        Args:
+            summary_id: Summary identifier.
+            embedding_id: Vector store embedding identifier.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.execute(
                 "UPDATE summaries SET embedding_id = ? WHERE id = ?",
@@ -539,7 +698,14 @@ class DatabaseConnection:
             conn.commit()
     
     def _row_to_summary(self, row: sqlite3.Row) -> Summary:
-        """Convert a database row to a Summary object."""
+        """Convert a database row to a `Summary` object.
+
+        Args:
+            row: SQLite row containing summary fields.
+
+        Returns:
+            Parsed `Summary`.
+        """
         return Summary(
             id=row["id"],
             content=row["content"],
@@ -561,7 +727,11 @@ class DatabaseConnection:
     # =========================================================================
     
     def get_all_topics(self) -> List[Dict[str, Any]]:
-        """Get all topics with their counts."""
+        """Get all topics with their counts.
+
+        Returns:
+            List of topic dictionaries (row mappings).
+        """
         with self.connect() as conn:
             rows = conn.execute("""
                 SELECT name, description, parent_topic, episode_count, last_seen
@@ -570,7 +740,14 @@ class DatabaseConnection:
             return [dict(row) for row in rows]
     
     def get_topics_for_episodes(self, episode_ids: List[str]) -> List[str]:
-        """Get all unique topics from a set of episodes."""
+        """Get all unique topics from a set of episodes.
+
+        Args:
+            episode_ids: Episode identifiers to collect topics from.
+
+        Returns:
+            List of unique topic strings.
+        """
         if not episode_ids:
             return []
         
@@ -590,8 +767,16 @@ class DatabaseConnection:
     # Metadata Operations
     # =========================================================================
     
-    def set_metadata(self, key: str, value: str):
-        """Set a metadata value."""
+    def set_metadata(self, key: str, value: str) -> None:
+        """Set a metadata value.
+
+        Args:
+            key: Metadata key.
+            value: Metadata value.
+
+        Returns:
+            None.
+        """
         with self.connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO metadata (key, value, updated_at)
@@ -600,7 +785,14 @@ class DatabaseConnection:
             conn.commit()
     
     def get_metadata(self, key: str) -> Optional[str]:
-        """Get a metadata value."""
+        """Get a metadata value.
+
+        Args:
+            key: Metadata key.
+
+        Returns:
+            Metadata value if present; otherwise None.
+        """
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT value FROM metadata WHERE key = ?", (key,)
@@ -612,7 +804,11 @@ class DatabaseConnection:
     # =========================================================================
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get database statistics."""
+        """Get database statistics.
+
+        Returns:
+            Dictionary of counts for core tables.
+        """
         with self.connect() as conn:
             episode_count = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
             fact_count = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]

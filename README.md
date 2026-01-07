@@ -43,6 +43,7 @@ python cli.py query "What am I learning?"
 ## Evaluation (Versioned Runs)
 
 Evaluation runs are stored under `runs/eval/<run_id>/eval_run.json` and include:
+
 - git commit hash (if available)
 - config snapshot (provider/model, k, scenario)
 - metrics + warnings
@@ -63,12 +64,14 @@ episodic-memory eval-compare <runA> <runB>
 ## Storage Choice: SQLite + FAISS
 
 **Why SQLite over Postgres?**
+
 - Local-first, no server dependencies
 - Single-file portability (backup = copy file)
 - JSON1 extension for flexible metadata
 - Zero configuration required
 
 **Why FAISS for vectors?**
+
 - Mature, fast, local-only C++ library
 - Supports multiple index types for scaling
 - Works well alongside SQLite for hybrid retrieval
@@ -79,19 +82,19 @@ episodic-memory eval-compare <runA> <runB>
 
 A timestamped event capturing what happened, when, and in what context.
 
-> *“On Tuesday at 3pm, I told my assistant I'm learning Korean for a trip to Seoul in March.”*
+> _“On Tuesday at 3pm, I told my assistant I'm learning Korean for a trip to Seoul in March.”_
 
 ### Fact (Semantic Memory)
 
 A distilled, stable piece of knowledge extracted from episodes.
 
-> *“User is learning Korean. User has a trip to Seoul planned for March 2024.”*
+> _“User is learning Korean. User has a trip to Seoul planned for March 2024.”_
 
 ### Summary (Consolidated Narrative)
 
 A topic-level summary that weaves together multiple episodes into a coherent narrative.
 
-> *“User's Korean language learning journey: Started in January 2024 motivated by upcoming Seoul trip...”*
+> _“User's Korean language learning journey: Started in January 2024 motivated by upcoming Seoul trip...”_
 
 ## Configuration
 

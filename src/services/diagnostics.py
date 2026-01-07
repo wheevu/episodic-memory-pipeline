@@ -73,20 +73,27 @@ class DiagnosticsService:
         self,
         components: Optional["PipelineComponents"] = None,
         config: Optional["Config"] = None
-    ):
+    ) -> None:
         """
         Initialize the diagnostics service.
         
         Args:
             components: Pipeline components (optional, for full diagnostics)
             config: Config object (for dry-run diagnostics)
+        
+        Returns:
+            None.
         """
         self.components = components
         self._config = config
     
     @property
-    def config(self):
-        """Get config, importing if needed."""
+    def config(self) -> "Config":
+        """Get config, importing if needed.
+
+        Returns:
+            The resolved `Config` instance used for diagnostics.
+        """
         if self._config is None:
             from config import config
             self._config = config
@@ -98,6 +105,9 @@ class DiagnosticsService:
         
         Returns:
             DiagnosticsResult with all diagnostic information
+        
+        Raises:
+            ValueError: If `components` were not provided to the service.
         """
         if self.components is None:
             raise ValueError("Components required for full diagnostics")
@@ -197,7 +207,11 @@ class DiagnosticsService:
         }
     
     def _get_bootstrap_status(self) -> BootstrapStatus:
-        """Get bootstrap system status."""
+        """Get bootstrap system status.
+
+        Returns:
+            `BootstrapStatus` describing whether bootstrap is initialized and cached.
+        """
         import os
         from src.bootstrap import is_initialized, get_cached_embedding_model
         
@@ -210,7 +224,11 @@ class DiagnosticsService:
         )
     
     def _get_llm_status(self) -> ProviderStatus:
-        """Get LLM provider status."""
+        """Get LLM provider status.
+
+        Returns:
+            `ProviderStatus` describing the configured LLM provider.
+        """
         from src.llm.interface import OllamaLLMProvider, OpenAILLMProvider, MockLLMProvider
         
         llm = self.components.llm
@@ -247,7 +265,11 @@ class DiagnosticsService:
             )
     
     def _get_embedding_status(self) -> ProviderStatus:
-        """Get embedding provider status."""
+        """Get embedding provider status.
+
+        Returns:
+            `ProviderStatus` describing the configured embedding provider.
+        """
         from src.embeddings.interface import (
             LocalEmbeddingProvider,
             OllamaEmbeddingProvider,
@@ -294,7 +316,14 @@ class DiagnosticsService:
             )
     
     def _get_vector_store_status(self, embedding_dim: int) -> VectorStoreStatus:
-        """Get vector store status."""
+        """Get vector store status.
+
+        Args:
+            embedding_dim: Expected embedding dimension for consistency checks.
+
+        Returns:
+            `VectorStoreStatus` describing the current FAISS indexes and health.
+        """
         vs = self.components.vector_store
         vs_stats = vs.get_statistics()
         
@@ -320,7 +349,16 @@ class DiagnosticsService:
         embedding: ProviderStatus,
         vector_store: VectorStoreStatus
     ) -> EvalReadiness:
-        """Determine evaluation readiness."""
+        """Determine evaluation readiness.
+
+        Args:
+            llm: LLM provider status.
+            embedding: Embedding provider status.
+            vector_store: Vector store status.
+
+        Returns:
+            `EvalReadiness` indicating whether evaluation results would be meaningful.
+        """
         warnings = []
         
         if embedding.is_mock:
@@ -343,7 +381,16 @@ class DiagnosticsService:
         embedding: ProviderStatus,
         vector_store: VectorStoreStatus
     ) -> List[str]:
-        """Generate fix suggestions."""
+        """Generate fix suggestions for common diagnostic issues.
+
+        Args:
+            llm: LLM provider status.
+            embedding: Embedding provider status.
+            vector_store: Vector store status.
+
+        Returns:
+            A list of shell commands/comments the user can copy-paste.
+        """
         suggestions = []
         
         if embedding.is_mock:

@@ -1,21 +1,39 @@
 """Demo commands for the episodic memory CLI."""
 import click
 from rich.panel import Panel
+from typing import TYPE_CHECKING
 
 from ..render import console
 from src.services import IngestionService, RetrievalService
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
 
-def _get_components(ctx):
-    """Get pipeline components from context."""
+
+def _get_components(ctx: click.Context) -> "PipelineComponents":
+    """Get pipeline components from the Click context.
+
+    Args:
+        ctx: Click context with a `use_mock` flag stored in `ctx.obj`.
+
+    Returns:
+        A `PipelineComponents` instance created by `src.cli.get_pipeline_components`.
+    """
     from src.cli import get_pipeline_components
     return get_pipeline_components(ctx.obj.get('use_mock', False))
 
 
 @click.command()
 @click.pass_context
-def demo(ctx):
-    """Run an interactive demo."""
+def demo(ctx: click.Context) -> None:
+    """Run a scripted demo showcasing core pipeline features.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+
+    Returns:
+        None.
+    """
     from config import config
     from src.cli.commands.query import stats
     
@@ -87,8 +105,15 @@ def demo(ctx):
 
 @click.command()
 @click.pass_context
-def interactive(ctx):
-    """Start an interactive session."""
+def interactive(ctx: click.Context) -> None:
+    """Start an interactive REPL-like session.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+
+    Returns:
+        None.
+    """
     from config import config
     
     components = _get_components(ctx)

@@ -7,7 +7,7 @@ Implements three core metrics:
 3. Consolidation Compression Ratio - measures summarization efficiency
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 from collections import defaultdict
 import re
 
@@ -24,14 +24,22 @@ class RetrievalPrecisionResult:
     
     @property
     def recall(self) -> float:
-        """Recall = relevant_found / total_expected."""
+        """Compute recall = relevant_found / total_expected.
+
+        Returns:
+            Recall value in the range [0.0, 1.0].
+        """
         if self.total_expected == 0:
             return 0.0
         return self.relevant_found / self.total_expected
     
     @property
     def f1(self) -> float:
-        """F1 score = harmonic mean of precision and recall."""
+        """Compute F1 score (harmonic mean of precision and recall).
+
+        Returns:
+            F1 value in the range [0.0, 1.0].
+        """
         if self.precision_at_k + self.recall == 0:
             return 0.0
         return 2 * (self.precision_at_k * self.recall) / (self.precision_at_k + self.recall)
@@ -47,7 +55,11 @@ class FactConflictResult:
     
     @property
     def consistency_rate(self) -> float:
-        """1 - conflict_rate."""
+        """Compute consistency rate = 1 - conflict_rate.
+
+        Returns:
+            Consistency rate in the range [0.0, 1.0].
+        """
         return 1.0 - self.conflict_rate
 
 
@@ -62,14 +74,22 @@ class CompressionResult:
     
     @property
     def tokens_per_episode(self) -> float:
-        """Average tokens per source episode."""
+        """Compute average tokens per source episode.
+
+        Returns:
+            Average tokens per source episode, or 0.0 if there are no episodes.
+        """
         if self.episode_count == 0:
             return 0.0
         return self.source_tokens / self.episode_count
     
     @property
     def tokens_per_summary(self) -> float:
-        """Average tokens per summary."""
+        """Compute average tokens per summary.
+
+        Returns:
+            Average tokens per summary, or 0.0 if there are no summaries.
+        """
         if self.summary_count == 0:
             return 0.0
         return self.summary_tokens / self.summary_count
@@ -94,7 +114,11 @@ class EvaluationMetrics:
     using_mock_llm: bool = False
     
     def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
+        """Convert metrics to a JSON-serializable dictionary.
+
+        Returns:
+            A dictionary suitable for JSON serialization.
+        """
         result = {
             "scenario": self.scenario_name,
             "timestamp": self.timestamp,
@@ -142,12 +166,15 @@ class RetrievalPrecisionMetric:
     A relevant episode is one whose ID is in the expected set.
     """
     
-    def __init__(self, k: int = 5):
+    def __init__(self, k: int = 5) -> None:
         """
         Initialize metric.
         
         Args:
             k: Number of top results to consider
+        
+        Returns:
+            None.
         """
         self.k = k
     
@@ -236,9 +263,12 @@ class FactConflictRateMetric:
     Conflict Rate = (# facts with at least one conflict) / (total facts)
     """
     
-    def __init__(self):
-        """Initialize metric."""
-        pass
+    def __init__(self) -> None:
+        """Initialize the metric.
+
+        Returns:
+            None.
+        """
     
     def evaluate(self, facts: list) -> FactConflictResult:
         """
@@ -296,7 +326,7 @@ class FactConflictRateMetric:
             conflict_pairs=conflict_pairs,
         )
     
-    def _extract_signature(self, fact) -> Optional[str]:
+    def _extract_signature(self, fact: Any) -> Optional[str]:
         """
         Extract entity-attribute signature from a fact.
         
@@ -304,6 +334,12 @@ class FactConflictRateMetric:
         - "User's name is John" -> "user:name"
         - "User lives in NYC" -> "user:location"
         - "User is learning Korean" -> "user:learning"
+        
+        Args:
+            fact: Fact-like object with a `content` attribute and optional `topic`/`category`.
+        
+        Returns:
+            Signature string used for grouping facts, or None if no signature is available.
         """
         content = fact.content.lower()
         
@@ -326,12 +362,19 @@ class FactConflictRateMetric:
         category = getattr(fact, 'category', 'unknown')
         return f"{topic}:{category}"
     
-    def _are_conflicting(self, fact1, fact2) -> bool:
+    def _are_conflicting(self, fact1: Any, fact2: Any) -> bool:
         """
         Determine if two facts conflict.
         
         Two facts conflict if they're about the same thing but state
         different values.
+        
+        Args:
+            fact1: First fact-like object.
+            fact2: Second fact-like object.
+        
+        Returns:
+            True if the facts are considered conflicting; otherwise False.
         """
         # If one supersedes the other, not a conflict (it's an update)
         if getattr(fact1, 'superseded_by', None) == fact2.id:
@@ -367,9 +410,12 @@ class ConsolidationCompressionMetric:
     Typical good range: 0.1-0.3 (70-90% compression)
     """
     
-    def __init__(self):
-        """Initialize metric."""
-        pass
+    def __init__(self) -> None:
+        """Initialize the metric.
+
+        Returns:
+            None.
+        """
     
     def evaluate(
         self,
@@ -426,6 +472,12 @@ class ConsolidationCompressionMetric:
         proper tokenizer (tiktoken for GPT, etc.)
         
         Approximation: 1 token ≈ 0.75 words (for English)
+
+        Args:
+            text: Input text to approximate token count for.
+
+        Returns:
+            Approximate token count as an integer.
         """
         if not text:
             return 0

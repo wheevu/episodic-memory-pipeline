@@ -43,8 +43,16 @@ def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
 @click.group()
 @click.option('--mock', is_flag=True, help='Use mock providers (no API calls)')
 @click.pass_context
-def app(ctx, mock):
-    """Episodic Memory Pipeline CLI"""
+def app(ctx: click.Context, mock: bool) -> None:
+    """Episodic Memory Pipeline CLI entrypoint.
+
+    Args:
+        ctx: Click context used to store command-scoped settings.
+        mock: If True, force mock providers (no external calls).
+
+    Returns:
+        None.
+    """
     ctx.ensure_object(dict)
     ctx.obj['use_mock'] = mock
 

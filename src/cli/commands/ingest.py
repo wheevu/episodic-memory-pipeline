@@ -1,13 +1,24 @@
 """Ingest command for the episodic memory CLI."""
 import click
 from rich.panel import Panel
+from typing import TYPE_CHECKING
 
 from ..render import console
 from src.services import IngestionService
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
 
-def _get_components(ctx):
-    """Get pipeline components from context."""
+
+def _get_components(ctx: click.Context) -> "PipelineComponents":
+    """Get pipeline components from the Click context.
+
+    Args:
+        ctx: Click context with a `use_mock` flag stored in `ctx.obj`.
+
+    Returns:
+        A `PipelineComponents` instance created by `src.cli.get_pipeline_components`.
+    """
     from src.cli import get_pipeline_components
     return get_pipeline_components(ctx.obj.get('use_mock', False))
 
@@ -17,8 +28,18 @@ def _get_components(ctx):
 @click.option('--source', default='cli', help='Source of the input')
 @click.option('--force', is_flag=True, help='Skip worthiness check')
 @click.pass_context
-def ingest(ctx, text: str, source: str, force: bool):
-    """Ingest a piece of text into memory."""
+def ingest(ctx: click.Context, text: str, source: str, force: bool) -> None:
+    """Ingest a piece of text into memory.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        text: Input text to ingest.
+        source: Source label associated with the input.
+        force: If True, bypass worthiness checks and store anyway.
+
+    Returns:
+        None.
+    """
     from config import config
     
     components = _get_components(ctx)

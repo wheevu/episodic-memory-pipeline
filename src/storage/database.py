@@ -5,7 +5,7 @@ Handles persistence of Episodes, Facts, Summaries, and their relationships.
 """
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Iterator
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -15,24 +15,36 @@ from ..models import Episode, Fact, Summary
 class Database:
     """SQLite database manager for the memory pipeline."""
     
-    def __init__(self, db_path: Path):
-        """
-        Initialize database connection.
-        
+    def __init__(self, db_path: Path) -> None:
+        """Initialize the database and ensure the schema exists.
+
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to the SQLite database file.
         """
         self.db_path = db_path
         self._ensure_directory()
         self._initialize_schema()
     
-    def _ensure_directory(self):
-        """Ensure database directory exists."""
+    def _ensure_directory(self) -> None:
+        """Ensure the database parent directory exists.
+
+        Returns:
+            None.
+        """
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
     
     @contextmanager
-    def _connection(self):
-        """Context manager for database connections."""
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Yield a SQLite connection with foreign keys enabled.
+
+        This centralizes transaction handling: commit on success, rollback on error.
+
+        Yields:
+            An open `sqlite3.Connection`.
+
+        Raises:
+            Exception: Re-raises any exception encountered within the context after rollback.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -45,8 +57,12 @@ class Database:
         finally:
             conn.close()
     
-    def _initialize_schema(self):
-        """Initialize database schema from SQL file."""
+    def _initialize_schema(self) -> None:
+        """Initialize the database schema from the repository's `schema.sql`.
+
+        Returns:
+            None.
+        """
         schema_path = Path(__file__).parent.parent.parent / "schema.sql"
         
         if schema_path.exists():
@@ -61,14 +77,13 @@ class Database:
     # =========================================================================
     
     def save_episode(self, episode: Episode) -> str:
-        """
-        Save an episode to the database.
-        
+        """Save (insert or replace) an episode row.
+
         Args:
-            episode: Episode to save
-            
+            episode: Episode to persist.
+
         Returns:
-            Episode ID
+            The episode's ID.
         """
         row = episode.to_db_row()
         
@@ -97,7 +112,14 @@ class Database:
         return episode.id
     
     def get_episode(self, episode_id: str) -> Optional[Episode]:
-        """Retrieve an episode by ID."""
+        """Retrieve an episode by ID.
+
+        Args:
+            episode_id: Episode identifier to look up.
+
+        Returns:
+            The episode if found; otherwise None.
+        """
         with self._connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM episodes WHERE id = ?",
@@ -119,25 +141,25 @@ class Database:
         limit: int = 100,
         offset: int = 0,
     ) -> list[Episode]:
-        """
-        Query episodes with filters.
-        
+        """Query episodes with optional filters.
+
         Args:
-            topic: Filter by topic (uses JSON contains)
-            memory_type: Filter by memory type
-            since: Episodes occurring after this time
-            until: Episodes occurring before this time
-            consolidated: Filter by consolidation status
-            limit: Maximum results
-            offset: Pagination offset
-            
+            topic: Filter by topic using a substring match in the stored JSON array.
+            memory_type: Filter by memory type.
+            since: Only include episodes occurring at/after this time.
+            until: Only include episodes occurring at/before this time.
+            consolidated: Filter by consolidation status if provided.
+            limit: Maximum number of results to return.
+            offset: Pagination offset.
+
         Returns:
-            List of matching episodes
+            A list of matching episodes ordered by `occurred_at` descending.
         """
         conditions = ["is_active = TRUE"]
-        params = []
+        params: list[object] = []
         
         if topic:
+            # Stored as JSON string; `LIKE` keeps dependencies minimal vs JSON1 predicates.
             conditions.append("topics LIKE ?")
             params.append(f'%"{topic}"%')
         
@@ -169,8 +191,15 @@ class Database:
             cursor = conn.execute(query, params)
             return [Episode.from_db_row(dict(row)) for row in cursor.fetchall()]
     
-    def mark_episodes_consolidated(self, episode_ids: list[str]):
-        """Mark episodes as consolidated."""
+    def mark_episodes_consolidated(self, episode_ids: list[str]) -> None:
+        """Mark episodes as consolidated in bulk.
+
+        Args:
+            episode_ids: Episode IDs to mark as consolidated.
+
+        Returns:
+            None.
+        """
         if not episode_ids:
             return
         
@@ -186,7 +215,15 @@ class Database:
         topic: Optional[str] = None,
         limit: int = 100
     ) -> list[Episode]:
-        """Get episodes that haven't been consolidated yet."""
+        """Return episodes that have not yet been consolidated.
+
+        Args:
+            topic: Optional topic filter.
+            limit: Maximum number of episodes to return.
+
+        Returns:
+            A list of unconsolidated episodes.
+        """
         return self.get_episodes(
             topic=topic,
             consolidated=False,
@@ -197,16 +234,15 @@ class Database:
     # Fact Operations
     # =========================================================================
     
-    def save_fact(self, fact: Fact, source_episode_ids: list[str] = None) -> str:
-        """
-        Save a fact and link to source episodes.
-        
+    def save_fact(self, fact: Fact, source_episode_ids: Optional[list[str]] = None) -> str:
+        """Save (insert or replace) a fact row and optionally link source episodes.
+
         Args:
-            fact: Fact to save
-            source_episode_ids: IDs of episodes that support this fact
-            
+            fact: Fact to persist.
+            source_episode_ids: Episode IDs that support this fact.
+
         Returns:
-            Fact ID
+            The fact's ID.
         """
         row = fact.to_db_row()
         
@@ -234,7 +270,14 @@ class Database:
         return fact.id
     
     def get_fact(self, fact_id: str) -> Optional[Fact]:
-        """Retrieve a fact by ID."""
+        """Retrieve a fact by ID (including its source episode links).
+
+        Args:
+            fact_id: Fact identifier to look up.
+
+        Returns:
+            The fact if found; otherwise None.
+        """
         with self._connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM facts WHERE id = ?",
@@ -260,9 +303,19 @@ class Database:
         current_only: bool = True,
         limit: int = 100
     ) -> list[Fact]:
-        """Query facts with filters."""
+        """Query facts with optional filters.
+
+        Args:
+            topic: Optional topic filter.
+            category: Optional category filter.
+            current_only: If True, exclude expired or superseded facts.
+            limit: Maximum number of facts to return.
+
+        Returns:
+            A list of matching facts ordered by `updated_at` descending.
+        """
         conditions = ["is_active = TRUE"]
-        params = []
+        params: list[object] = []
         
         if topic:
             conditions.append("topic = ?")
@@ -290,7 +343,18 @@ class Database:
             return [Fact.from_db_row(dict(row)) for row in cursor.fetchall()]
     
     def find_similar_facts(self, content: str, topic: str) -> list[Fact]:
-        """Find potentially duplicate or related facts by content similarity."""
+        """Return a small set of recent facts for duplicate checking within a topic.
+
+        This is intentionally a lightweight heuristic; semantic similarity is handled
+        by the vector store, while this supports quick "nearby candidates" lookups.
+
+        Args:
+            content: Fact text content (currently unused by this heuristic).
+            topic: Topic to constrain the search.
+
+        Returns:
+            A list of recent facts in the same topic.
+        """
         # Simple text-based similarity check (vector search handles semantic)
         with self._connection() as conn:
             cursor = conn.execute("""
@@ -301,8 +365,16 @@ class Database:
             """, (topic,))
             return [Fact.from_db_row(dict(row)) for row in cursor.fetchall()]
     
-    def supersede_fact(self, old_fact_id: str, new_fact: Fact):
-        """Mark an old fact as superseded by a new one."""
+    def supersede_fact(self, old_fact_id: str, new_fact: Fact) -> None:
+        """Mark a fact as superseded by another fact.
+
+        Args:
+            old_fact_id: ID of the fact being superseded.
+            new_fact: The replacing fact.
+
+        Returns:
+            None.
+        """
         with self._connection() as conn:
             conn.execute(
                 "UPDATE facts SET superseded_by = ?, is_active = FALSE WHERE id = ?",
@@ -316,19 +388,18 @@ class Database:
     def save_summary(
         self,
         summary: Summary,
-        source_episode_ids: list[str] = None,
-        key_episode_ids: list[str] = None
+        source_episode_ids: Optional[list[str]] = None,
+        key_episode_ids: Optional[list[str]] = None
     ) -> str:
-        """
-        Save a summary and link to source episodes.
-        
+        """Save (insert or replace) a summary row and link contributing episodes.
+
         Args:
-            summary: Summary to save
-            source_episode_ids: All episodes that contributed
-            key_episode_ids: Subset of episodes that are key events
-            
+            summary: Summary to persist.
+            source_episode_ids: Episode IDs that contributed to this summary.
+            key_episode_ids: Subset of source episode IDs marked as key events.
+
         Returns:
-            Summary ID
+            The summary's ID.
         """
         row = summary.to_db_row()
         
@@ -364,7 +435,14 @@ class Database:
         return summary.id
     
     def get_summary(self, summary_id: str) -> Optional[Summary]:
-        """Retrieve a summary by ID."""
+        """Retrieve a summary by ID (including its source episode links).
+
+        Args:
+            summary_id: Summary identifier to look up.
+
+        Returns:
+            The summary if found; otherwise None.
+        """
         with self._connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM summaries WHERE id = ?",
@@ -389,9 +467,19 @@ class Database:
         since: Optional[datetime] = None,
         limit: int = 50
     ) -> list[Summary]:
-        """Query summaries with filters."""
+        """Query summaries with optional filters.
+
+        Args:
+            topic: Optional topic filter.
+            level: Optional summary level filter.
+            since: Only include summaries ending at/after this time.
+            limit: Maximum number of summaries to return.
+
+        Returns:
+            A list of matching summaries ordered by `time_end` descending.
+        """
         conditions = ["is_active = TRUE"]
-        params = []
+        params: list[object] = []
         
         if topic:
             conditions.append("topic = ?")
@@ -418,7 +506,14 @@ class Database:
             return [Summary.from_db_row(dict(row)) for row in cursor.fetchall()]
     
     def get_latest_summary(self, topic: str) -> Optional[Summary]:
-        """Get the most recent summary for a topic."""
+        """Return the most recent summary for a topic.
+
+        Args:
+            topic: Topic name to fetch the latest summary for.
+
+        Returns:
+            The latest summary if one exists; otherwise None.
+        """
         summaries = self.get_summaries(topic=topic, limit=1)
         return summaries[0] if summaries else None
     
@@ -427,7 +522,11 @@ class Database:
     # =========================================================================
     
     def get_topics(self) -> list[dict]:
-        """Get all registered topics with stats."""
+        """Return all known topics with basic statistics.
+
+        Returns:
+            A list of topic dictionaries ordered by `episode_count` descending.
+        """
         with self._connection() as conn:
             cursor = conn.execute("""
                 SELECT name, description, episode_count, last_consolidation
@@ -441,12 +540,18 @@ class Database:
         min_episodes: int = 5,
         max_age_days: int = 7
     ) -> list[str]:
-        """
-        Find topics that need consolidation.
-        
+        """Find topics that should be consolidated based on episode volume or staleness.
+
         Criteria:
-        - Has at least min_episodes unconsolidated episodes
-        - OR hasn't been consolidated in max_age_days
+        - Has at least `min_episodes` unconsolidated episodes, OR
+        - Has not been consolidated in `max_age_days`.
+
+        Args:
+            min_episodes: Minimum unconsolidated episode count to trigger consolidation.
+            max_age_days: Maximum allowed days since last consolidation.
+
+        Returns:
+            A list of topic names needing consolidation.
         """
         cutoff = datetime.utcnow()
         
@@ -477,8 +582,20 @@ class Database:
     # Utility Operations
     # =========================================================================
     
-    def update_embedding_id(self, table: str, record_id: str, embedding_id: int):
-        """Update the embedding_id for a record."""
+    def update_embedding_id(self, table: str, record_id: str, embedding_id: int) -> None:
+        """Update the `embedding_id` field for a record in the given table.
+
+        Args:
+            table: One of {"episodes", "facts", "summaries"}.
+            record_id: Primary key of the record to update.
+            embedding_id: FAISS internal ID to store.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If `table` is not one of the allowed table names.
+        """
         valid_tables = {"episodes", "facts", "summaries"}
         if table not in valid_tables:
             raise ValueError(f"Invalid table: {table}")
@@ -490,7 +607,11 @@ class Database:
             )
     
     def get_statistics(self) -> dict:
-        """Get database statistics."""
+        """Return basic database statistics for monitoring/debugging.
+
+        Returns:
+            A dictionary of aggregate counts (episodes, facts, summaries, topics).
+        """
         with self._connection() as conn:
             stats = {}
             

@@ -61,8 +61,12 @@ class Config:
         default_factory=lambda: int(os.getenv("CONSOLIDATION_WINDOW_DAYS", "7"))
     )
     
-    def __post_init__(self):
-        """Ensure storage directories exist."""
+    def __post_init__(self) -> None:
+        """Ensure storage directories exist.
+
+        Returns:
+            None.
+        """
         self.database_path = Path(self.database_path)
         self.faiss_index_path = Path(self.faiss_index_path)
         
@@ -76,15 +80,23 @@ _config: Optional[Config] = None
 
 
 def get_config() -> Config:
-    """Get or create the global config instance."""
+    """Get or create the global config instance.
+
+    Returns:
+        Global `Config` instance.
+    """
     global _config
     if _config is None:
         _config = Config()
     return _config
 
 
-def reset_config():
-    """Reset config (useful for testing)."""
+def reset_config() -> None:
+    """Reset config (useful for testing).
+
+    Returns:
+        None.
+    """
     global _config
     _config = None
 

@@ -3,13 +3,24 @@ import click
 from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
+from typing import TYPE_CHECKING
 
 from ..render import console
 from src.services import RetrievalService
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
 
-def _get_components(ctx):
-    """Get pipeline components from context."""
+
+def _get_components(ctx: click.Context) -> "PipelineComponents":
+    """Get pipeline components from the Click context.
+
+    Args:
+        ctx: Click context with a `use_mock` flag stored in `ctx.obj`.
+
+    Returns:
+        A `PipelineComponents` instance created by `src.cli.get_pipeline_components`.
+    """
     from src.cli import get_pipeline_components
     return get_pipeline_components(ctx.obj.get('use_mock', False))
 
@@ -18,8 +29,17 @@ def _get_components(ctx):
 @click.argument('query_text')
 @click.option('--no-synthesize', is_flag=True, help='Skip answer synthesis')
 @click.pass_context
-def query(ctx, query_text: str, no_synthesize: bool):
-    """Query the memory system."""
+def query(ctx: click.Context, query_text: str, no_synthesize: bool) -> None:
+    """Query the memory system.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        query_text: Natural-language query to execute.
+        no_synthesize: If True, skip LLM-based answer synthesis.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = RetrievalService(components)
     
@@ -54,8 +74,17 @@ def query(ctx, query_text: str, no_synthesize: bool):
 @click.argument('topic_or_query')
 @click.option('--topic', is_flag=True, help='Treat input as exact topic name')
 @click.pass_context
-def recall(ctx, topic_or_query: str, topic: bool):
-    """Recall the narrative/journey for a topic."""
+def recall(ctx: click.Context, topic_or_query: str, topic: bool) -> None:
+    """Recall the narrative/journey for a topic.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        topic_or_query: Topic name or free-form query used to infer a topic.
+        topic: If True, treat `topic_or_query` as an exact topic name.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = RetrievalService(components)
     
@@ -81,8 +110,17 @@ def recall(ctx, topic_or_query: str, topic: bool):
 @click.option('--topic', help='Consolidate specific topic')
 @click.option('--all', 'consolidate_all', is_flag=True, help='Consolidate all topics needing it')
 @click.pass_context
-def consolidate(ctx, topic: str, consolidate_all: bool):
-    """Run memory consolidation."""
+def consolidate(ctx: click.Context, topic: str, consolidate_all: bool) -> None:
+    """Run memory consolidation.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+        topic: Optional topic name to consolidate.
+        consolidate_all: If True, consolidate all topics meeting criteria.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = RetrievalService(components)
     
@@ -119,8 +157,15 @@ def consolidate(ctx, topic: str, consolidate_all: bool):
 
 @click.command()
 @click.pass_context
-def stats(ctx):
-    """Show memory system statistics."""
+def stats(ctx: click.Context) -> None:
+    """Show memory system statistics.
+
+    Args:
+        ctx: Click context with pipeline initialization settings.
+
+    Returns:
+        None.
+    """
     components = _get_components(ctx)
     service = RetrievalService(components)
     

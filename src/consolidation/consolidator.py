@@ -22,7 +22,18 @@ from .fact_extractor import FactExtractor
 
 @dataclass
 class ConsolidationResult:
-    """Result of a consolidation run."""
+    """Represents the outcome and statistics of a consolidation run.
+
+    Attributes:
+        run_id: Unique identifier for the consolidation run.
+        topic: Topic consolidated (or None if not topic-specific).
+        episodes_processed: Number of episodes processed in this run.
+        summaries_created: Number of summaries created.
+        facts_extracted: Number of new facts created.
+        facts_updated: Number of facts updated (superseded + replaced).
+        facts_contradicted: Number of facts marked contradicted.
+        duration_seconds: Total runtime for the consolidation run.
+    """
     run_id: str
     topic: Optional[str]
     episodes_processed: int
@@ -62,17 +73,16 @@ class ConsolidationPipeline:
         llm: LLMProvider,
         episode_threshold: int = 5,
         age_threshold_days: int = 7,
-    ):
-        """
-        Initialize consolidation pipeline.
-        
+    ) -> None:
+        """Initialize the consolidation pipeline.
+
         Args:
-            database: Database storage
-            vector_store: Vector storage
-            embedding_provider: Embedding model
-            llm: LLM for summarization/extraction
-            episode_threshold: Min episodes before consolidation
-            age_threshold_days: Max days without consolidation
+            database: Structured storage for episodes/facts/summaries.
+            vector_store: Vector index used to store summary/fact embeddings.
+            embedding_provider: Provider used to embed summaries and facts.
+            llm: Provider used for summarization and fact extraction.
+            episode_threshold: Minimum unconsolidated episode count to trigger consolidation.
+            age_threshold_days: Maximum days since last consolidation before triggering.
         """
         self.database = database
         self.vector_store = vector_store
@@ -83,14 +93,13 @@ class ConsolidationPipeline:
         self.age_threshold_days = age_threshold_days
     
     def consolidate_topic(self, topic: str) -> ConsolidationResult:
-        """
-        Consolidate a single topic.
-        
+        """Consolidate a single topic by summarizing episodes and extracting facts.
+
         Args:
-            topic: Topic to consolidate
-            
+            topic: Topic to consolidate.
+
         Returns:
-            ConsolidationResult with statistics
+            A `ConsolidationResult` with run statistics.
         """
         run_id = str(uuid4())
         start_time = datetime.utcnow()
@@ -155,7 +164,8 @@ class ConsolidationPipeline:
         
         # Handle contradicted facts (mark as inactive)
         for fact_id in fact_result.contradicted_fact_ids:
-            # Could add a "contradicted" flag, for now just supersede with nothing
+            # Placeholder: contradictions are detected, but the current storage model
+            # does not persist an explicit "contradicted" state beyond tracking IDs.
             pass
         
         # Mark episodes as consolidated
@@ -178,11 +188,10 @@ class ConsolidationPipeline:
         )
     
     def consolidate_all(self) -> list[ConsolidationResult]:
-        """
-        Consolidate all topics that need it.
-        
+        """Consolidate all topics that meet consolidation criteria.
+
         Returns:
-            List of ConsolidationResult for each topic
+            A list of `ConsolidationResult`, one per consolidated topic.
         """
         topics = self.database.get_topics_needing_consolidation(
             min_episodes=self.episode_threshold,
@@ -197,14 +206,13 @@ class ConsolidationPipeline:
         return results
     
     def should_consolidate(self, topic: Optional[str] = None) -> bool:
-        """
-        Check if consolidation is needed.
-        
+        """Return True if consolidation is needed for a topic (or any topic).
+
         Args:
-            topic: Specific topic to check, or None for any topic
-            
+            topic: Specific topic to check, or None to check whether any topic qualifies.
+
         Returns:
-            True if consolidation is needed
+            True if consolidation is needed.
         """
         if topic:
             episodes = self.database.get_unconsolidated_episodes(topic=topic)
@@ -217,10 +225,13 @@ class ConsolidationPipeline:
             return len(topics) > 0
     
     def create_weekly_summary(self, topic: str) -> Optional[Summary]:
-        """
-        Create a weekly summary from recent episodes.
-        
-        This is the standard consolidation unit.
+        """Create a weekly summary from recent episodes for a topic.
+
+        Args:
+            topic: Topic to summarize.
+
+        Returns:
+            A `Summary` if there are recent episodes; otherwise None.
         """
         week_ago = datetime.utcnow() - timedelta(days=7)
         episodes = self.database.get_episodes(
@@ -238,10 +249,13 @@ class ConsolidationPipeline:
         return result.summary
     
     def create_monthly_summary(self, topic: str) -> Optional[Summary]:
-        """
-        Create a monthly summary from weekly summaries.
-        
-        Higher-level consolidation for long-term patterns.
+        """Create a monthly summary by aggregating weekly summaries.
+
+        Args:
+            topic: Topic to summarize.
+
+        Returns:
+            A higher-level `Summary` if enough weekly summaries exist; otherwise None.
         """
         month_ago = datetime.utcnow() - timedelta(days=30)
         weekly_summaries = self.database.get_summaries(

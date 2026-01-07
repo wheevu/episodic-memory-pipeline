@@ -15,7 +15,15 @@ from ..embeddings import EmbeddingProvider
 
 @dataclass
 class NarrativeResult:
-    """Result of narrative retrieval."""
+    """Represents results of a narrative/timeline retrieval query.
+
+    Attributes:
+        episodes: Episodes ordered chronologically (oldest first).
+        facts: Facts associated with the inferred/selected topic.
+        summaries: Summaries associated with the inferred/selected topic.
+        topic: Topic used (explicit or inferred), if any.
+        time_span: Inclusive (start, end) bounds of the episode timeline, if any.
+    """
     episodes: list[Episode]  # Time-ordered
     facts: list[Fact]
     summaries: list[Summary]
@@ -40,15 +48,14 @@ class NarrativeRetriever:
         vector_store: VectorStore,
         embedding_provider: EmbeddingProvider,
         max_episodes: int = 50,
-    ):
-        """
-        Initialize narrative retriever.
-        
+    ) -> None:
+        """Initialize the narrative retriever.
+
         Args:
-            database: Database for queries
-            vector_store: Vector store for semantic matching
-            embedding_provider: Embedding model
-            max_episodes: Maximum episodes in narrative
+            database: Structured storage used to fetch episodes/facts/summaries.
+            vector_store: Vector index used for semantic matching.
+            embedding_provider: Provider used to embed free-form queries.
+            max_episodes: Maximum episodes to include in a narrative timeline.
         """
         self.database = database
         self.vector_store = vector_store
@@ -63,18 +70,17 @@ class NarrativeRetriever:
         include_summaries: bool = True,
         include_facts: bool = True,
     ) -> NarrativeResult:
-        """
-        Recall the narrative for a topic.
-        
+        """Recall a topic narrative within an optional time window.
+
         Args:
-            topic: Topic to recall
-            since: Start of time range
-            until: End of time range
-            include_summaries: Include topic summaries
-            include_facts: Include related facts
-            
+            topic: Topic to recall.
+            since: Optional start time for episode selection.
+            until: Optional end time for episode selection.
+            include_summaries: If True, include summaries for the topic.
+            include_facts: If True, include facts for the topic.
+
         Returns:
-            NarrativeResult with chronologically ordered memories
+            A `NarrativeResult` with chronologically ordered memories.
         """
         # Get episodes for topic, ordered by time
         episodes = self.database.get_episodes(
@@ -120,11 +126,18 @@ class NarrativeRetriever:
         since: Optional[datetime] = None,
         until: Optional[datetime] = None,
     ) -> NarrativeResult:
-        """
-        Recall narrative matching a query (topic inferred).
-        
-        Uses semantic search to find relevant episodes,
-        then constructs narrative around them.
+        """Recall a narrative matching a query, inferring the topic from results.
+
+        Uses semantic search to find relevant episodes, then expands to a full
+        topic narrative when a clear primary topic can be inferred.
+
+        Args:
+            query: Natural language query used to seed semantic retrieval.
+            since: Optional start time filter for narrative expansion.
+            until: Optional end time filter for narrative expansion.
+
+        Returns:
+            A `NarrativeResult` for the inferred topic, or an empty result.
         """
         # Embed query
         query_embedding = self.embedding_provider.embed_text(query)
@@ -161,7 +174,7 @@ class NarrativeRetriever:
             )
         
         # Infer primary topic from episodes
-        topic_counts = {}
+        topic_counts: dict[str, int] = {}
         for ep in episodes:
             for t in ep.topics:
                 topic_counts[t] = topic_counts.get(t, 0) + 1
@@ -207,10 +220,14 @@ class NarrativeRetriever:
         topic: str,
         days: int = 30,
     ) -> NarrativeResult:
-        """
-        Get the recent journey for a topic.
-        
-        Optimized for "What's been happening with X lately?"
+        """Return a recent narrative slice for a topic.
+
+        Args:
+            topic: Topic to recall.
+            days: Lookback window size in days.
+
+        Returns:
+            A `NarrativeResult` constrained to the lookback period.
         """
         since = datetime.utcnow() - timedelta(days=days)
         return self.recall(topic, since=since)
@@ -220,10 +237,17 @@ class NarrativeRetriever:
         topic: str,
         limit: int = 10,
     ) -> list[Episode]:
-        """
-        Get the most important episodes for a topic.
-        
-        Uses importance scores and summary key_events.
+        """Return the most important episodes for a topic.
+
+        This uses each episode's intrinsic `importance` score and applies a small
+        boost for episodes referenced in summaries (treated as key events).
+
+        Args:
+            topic: Topic to select key episodes from.
+            limit: Maximum number of episodes to return.
+
+        Returns:
+            A list of episodes ordered by descending importance.
         """
         # Get summaries to find key events
         summaries = self.database.get_summaries(topic=topic)
@@ -236,7 +260,8 @@ class NarrativeRetriever:
         episodes = self.database.get_episodes(topic=topic, limit=100)
         
         # Boost episodes that are in key_events
-        def score(ep):
+        def score(ep: Episode) -> float:
+            """Compute a ranking score for a key-moment candidate episode."""
             base = ep.importance
             if ep.id in key_episode_ids:
                 base += 0.2
@@ -250,15 +275,14 @@ class NarrativeRetriever:
         topic: str,
         granularity: str = "day",
     ) -> list[dict]:
-        """
-        Build a timeline view of topic evolution.
-        
+        """Build a grouped timeline view of a topic's episodes.
+
         Args:
-            topic: Topic to timeline
-            granularity: "day", "week", or "month"
-            
+            topic: Topic to build a timeline for.
+            granularity: Grouping unit: "day", "week", or "month".
+
         Returns:
-            List of timeline entries with date and events
+            A list of timeline buckets, each containing a period label and events.
         """
         episodes = self.database.get_episodes(topic=topic, limit=200)
         episodes = sorted(episodes, key=lambda e: e.occurred_at)

@@ -36,7 +36,7 @@ from src.embeddings import (
 class TestMockEmbeddingProvider:
     """Test MockEmbeddingProvider - always runs."""
     
-    def test_embed_text_returns_normalized_vector(self):
+    def test_embed_text_returns_normalized_vector(self) -> None:
         """Mock embeddings should be normalized."""
         provider = MockEmbeddingProvider(dimension=384)
         embedding = provider.embed_text("Hello world")
@@ -48,7 +48,7 @@ class TestMockEmbeddingProvider:
         norm = np.linalg.norm(embedding)
         assert 0.99 < norm < 1.01
     
-    def test_embed_batch_returns_correct_shape(self):
+    def test_embed_batch_returns_correct_shape(self) -> None:
         """Batch embeddings should have correct shape."""
         provider = MockEmbeddingProvider(dimension=384)
         texts = ["Hello", "World", "Test"]
@@ -57,14 +57,14 @@ class TestMockEmbeddingProvider:
         assert embeddings.shape == (3, 384)
         assert embeddings.dtype == np.float32
     
-    def test_embed_empty_batch(self):
+    def test_embed_empty_batch(self) -> None:
         """Empty batch should return empty array."""
         provider = MockEmbeddingProvider(dimension=384)
         embeddings = provider.embed_batch([])
         
         assert embeddings.shape == (0, 384)
     
-    def test_deterministic_embeddings(self):
+    def test_deterministic_embeddings(self) -> None:
         """Same text should produce same embedding."""
         provider = MockEmbeddingProvider(dimension=384)
         
@@ -73,7 +73,7 @@ class TestMockEmbeddingProvider:
         
         np.testing.assert_array_equal(emb1, emb2)
     
-    def test_different_texts_different_embeddings(self):
+    def test_different_texts_different_embeddings(self) -> None:
         """Different texts should produce different embeddings."""
         provider = MockEmbeddingProvider(dimension=384)
         
@@ -82,12 +82,12 @@ class TestMockEmbeddingProvider:
         
         assert not np.allclose(emb1, emb2)
     
-    def test_is_mock_property(self):
+    def test_is_mock_property(self) -> None:
         """Mock provider should indicate it's mock."""
         provider = MockEmbeddingProvider()
         assert provider.is_mock is True
     
-    def test_embed_documents_alias(self):
+    def test_embed_documents_alias(self) -> None:
         """embed_documents should work as alias for embed_batch."""
         provider = MockEmbeddingProvider(dimension=384)
         texts = ["Hello", "World"]
@@ -97,7 +97,7 @@ class TestMockEmbeddingProvider:
         assert len(docs) == 2
         assert all(isinstance(d, np.ndarray) for d in docs)
     
-    def test_embed_query_alias(self):
+    def test_embed_query_alias(self) -> None:
         """embed_query should work as alias for embed_text."""
         provider = MockEmbeddingProvider(dimension=384)
         
@@ -110,7 +110,7 @@ class TestMockEmbeddingProvider:
 class TestFactoryFunction:
     """Test get_embedding_provider factory."""
     
-    def test_mock_provider(self):
+    def test_mock_provider(self) -> None:
         """Factory should create mock provider."""
         provider = get_embedding_provider("mock", dimension=512)
         
@@ -118,12 +118,12 @@ class TestFactoryFunction:
         assert provider.dimension == 512
         assert provider.is_mock is True
     
-    def test_unknown_provider_raises(self):
+    def test_unknown_provider_raises(self) -> None:
         """Unknown provider should raise ValueError."""
         with pytest.raises(ValueError, match="Unknown provider"):
             get_embedding_provider("nonexistent")
     
-    def test_openai_without_key_raises(self):
+    def test_openai_without_key_raises(self) -> None:
         """OpenAI provider without API key should raise."""
         with pytest.raises(ValueError, match="API key required"):
             get_embedding_provider("openai")
@@ -139,16 +139,27 @@ class TestLocalEmbeddingProvider:
     """
     
     @pytest.fixture
-    def provider(self):
-        """Create local embedding provider with smaller model for testing."""
+    def provider(self) -> LocalEmbeddingProvider:
+        """Create local embedding provider with smaller model for testing.
+
+        Returns:
+            A `LocalEmbeddingProvider` using a small model for faster tests.
+        """
         # Use smaller model for faster tests
         return LocalEmbeddingProvider(
             model_name="all-MiniLM-L6-v2",
             device="cpu"
         )
     
-    def test_embed_text_returns_normalized(self, provider):
-        """Local embeddings should be L2-normalized."""
+    def test_embed_text_returns_normalized(self, provider: LocalEmbeddingProvider) -> None:
+        """Local embeddings should be L2-normalized.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
+        """
         embedding = provider.embed_text("Hello world")
         
         assert embedding.dtype == np.float32
@@ -157,11 +168,17 @@ class TestLocalEmbeddingProvider:
         norm = np.linalg.norm(embedding)
         assert 0.99 < norm < 1.01, f"Expected norm ~1.0, got {norm}"
     
-    def test_semantic_similarity_ranking(self, provider):
+    def test_semantic_similarity_ranking(self, provider: LocalEmbeddingProvider) -> None:
         """
         Similar texts should have higher cosine similarity than dissimilar texts.
         
         This is the key test that verifies embeddings are semantically meaningful.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
         """
         # Embed test sentences
         cat_sentence = provider.embed_text("The cat sat on the mat")
@@ -181,8 +198,15 @@ class TestLocalEmbeddingProvider:
         assert 0.3 < cat_kitten_sim < 1.0, f"Unexpected similarity: {cat_kitten_sim}"
         assert 0.0 < cat_math_sim < 0.5, f"Unexpected similarity: {cat_math_sim}"
     
-    def test_embed_batch_matches_individual(self, provider):
-        """Batch embedding should match individual embeddings."""
+    def test_embed_batch_matches_individual(self, provider: LocalEmbeddingProvider) -> None:
+        """Batch embedding should match individual embeddings.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
+        """
         texts = ["Hello world", "Test sentence"]
         
         batch_emb = provider.embed_batch(texts)
@@ -191,17 +215,38 @@ class TestLocalEmbeddingProvider:
         np.testing.assert_allclose(batch_emb[0], individual_embs[0], rtol=1e-5)
         np.testing.assert_allclose(batch_emb[1], individual_embs[1], rtol=1e-5)
     
-    def test_dimension_property(self, provider):
-        """Dimension should match embedding size."""
+    def test_dimension_property(self, provider: LocalEmbeddingProvider) -> None:
+        """Dimension should match embedding size.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
+        """
         embedding = provider.embed_text("Test")
         assert provider.dimension == embedding.shape[0]
     
-    def test_is_not_mock(self, provider):
-        """Local provider should not be mock."""
+    def test_is_not_mock(self, provider: LocalEmbeddingProvider) -> None:
+        """Local provider should not be mock.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
+        """
         assert provider.is_mock is False
     
-    def test_empty_string_handling(self, provider):
-        """Empty string should produce valid embedding."""
+    def test_empty_string_handling(self, provider: LocalEmbeddingProvider) -> None:
+        """Empty string should produce valid embedding.
+
+        Args:
+            provider: Local embedding provider fixture.
+
+        Returns:
+            None.
+        """
         embedding = provider.embed_text("")
         
         assert embedding.shape == (provider.dimension,)
@@ -220,8 +265,12 @@ class TestBgeM3Provider:
     """
     
     @pytest.fixture
-    def provider(self):
-        """Create BGE-M3 provider."""
+    def provider(self) -> LocalEmbeddingProvider:
+        """Create BGE-M3 provider.
+
+        Returns:
+            A `LocalEmbeddingProvider` using the BGE-M3 model.
+        """
         try:
             return LocalEmbeddingProvider(
                 model_name="BAAI/bge-m3",
@@ -230,12 +279,26 @@ class TestBgeM3Provider:
         except Exception as e:
             pytest.skip(f"BGE-M3 model not available: {e}")
     
-    def test_bge_m3_dimension(self, provider):
-        """BGE-M3 should have 1024-dimensional embeddings."""
+    def test_bge_m3_dimension(self, provider: LocalEmbeddingProvider) -> None:
+        """BGE-M3 should have 1024-dimensional embeddings.
+
+        Args:
+            provider: BGE-M3 embedding provider fixture.
+
+        Returns:
+            None.
+        """
         assert provider.dimension == 1024
     
-    def test_bge_m3_semantic_quality(self, provider):
-        """BGE-M3 should produce high-quality semantic embeddings."""
+    def test_bge_m3_semantic_quality(self, provider: LocalEmbeddingProvider) -> None:
+        """BGE-M3 should produce high-quality semantic embeddings.
+
+        Args:
+            provider: BGE-M3 embedding provider fixture.
+
+        Returns:
+            None.
+        """
         # Korean learning example (relevant to memory pipeline use case)
         korean_1 = provider.embed_text("I started learning Korean today")
         korean_2 = provider.embed_text("My Korean language study is going well")
@@ -258,7 +321,7 @@ class TestProviderSelection:
     without actually downloading any models.
     """
     
-    def test_mock_is_default_fallback(self):
+    def test_mock_is_default_fallback(self) -> None:
         """Mock should work without any external dependencies."""
         provider = get_embedding_provider("mock")
         
@@ -267,7 +330,7 @@ class TestProviderSelection:
         assert emb is not None
         assert provider.is_mock is True
     
-    def test_local_provider_listed_but_not_loaded(self):
+    def test_local_provider_listed_but_not_loaded(self) -> None:
         """Local provider type should be recognized even if not loaded."""
         # This just tests that the factory knows about 'local'
         # We don't actually load it to avoid model download
@@ -280,7 +343,7 @@ class TestProviderSelection:
             # Expected if sentence-transformers not installed
             assert "sentence-transformers" in str(e).lower()
     
-    def test_embedding_dimension_configurable(self):
+    def test_embedding_dimension_configurable(self) -> None:
         """Mock provider should respect dimension parameter."""
         provider_384 = get_embedding_provider("mock", dimension=384)
         provider_1024 = get_embedding_provider("mock", dimension=1024)
@@ -302,7 +365,7 @@ class TestCosineSimWithFaiss:
     The memory pipeline uses IndexFlatIP for cosine similarity on normalized vectors.
     """
     
-    def test_normalized_embeddings_for_ip_search(self):
+    def test_normalized_embeddings_for_ip_search(self) -> None:
         """Normalized embeddings should work for inner product = cosine search."""
         provider = MockEmbeddingProvider(dimension=128)
         
