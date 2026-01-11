@@ -32,7 +32,12 @@ class Database:
         Returns:
             None.
         """
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Failed to create database directory: %s", e)
+            raise
     
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -63,15 +68,67 @@ class Database:
 
         Returns:
             None.
-        """
-        schema_path = Path(__file__).parent.parent.parent / "schema.sql"
         
-        if schema_path.exists():
+        Raises:
+            FileNotFoundError: If schema.sql cannot be found.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Try multiple locations for schema.sql
+        search_paths = [
+            # Relative to this file (src/storage/)
+            Path(__file__).parent.parent.parent / "schema.sql",
+            # Relative to package root (when installed)
+            Path(__file__).parent.parent / "schema.sql",
+            # Relative to current working directory
+            Path.cwd() / "schema.sql",
+            # From package resources if available
+        ]
+        
+        schema_path = None
+        for path in search_paths:
+            if path.exists():
+                schema_path = path
+                logger.debug("Found schema.sql at: %s", path)
+                break
+        
+        # Try importlib.resources as fallback for installed packages
+        if schema_path is None:
+            try:
+                import importlib.resources as pkg_resources
+                # Try to load from package data
+                try:
+                    schema_text = pkg_resources.read_text("episodic_memory_pipeline", "schema.sql")
+                    with self._connection() as conn:
+                        conn.executescript(schema_text)
+                    logger.info("Loaded schema from package resources")
+                    return
+                except (FileNotFoundError, ModuleNotFoundError):
+                    pass
+            except ImportError:
+                pass
+        
+        if schema_path is None:
+            error_msg = (
+                "Could not find schema.sql. Searched in: " + 
+                ", ".join(str(p) for p in search_paths) +
+                ". This is required to initialize the database."
+            )
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+        
+        try:
             with open(schema_path) as f:
                 schema_sql = f.read()
             
             with self._connection() as conn:
                 conn.executescript(schema_sql)
+            
+            logger.info("Database schema initialized from: %s", schema_path)
+        except Exception as e:
+            logger.error("Failed to initialize database schema: %s", e)
+            raise
 
     def _apply_topic_delta(self, conn: sqlite3.Connection, topic: str, delta: int) -> None:
         """Apply an increment/decrement to a topic's episode count.

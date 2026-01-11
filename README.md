@@ -58,8 +58,9 @@ episodic-memory eval-compare <runA> <runB>
 
 1. **Episodic memory ≠ vector blobs**: Each memory is a structured event with context, time, and meaning.
 2. **Time and provenance matter**: Every fact and summary links back to its source episodes. Hallucination prevention starts with lineage.
-3. **Memory must be curated, not accumulated**: Not everything is worth remembering. We filter aggressively via a “Memory Worthiness” gate.
+3. **Memory must be curated, not accumulated**: Not everything is worth remembering. We filter aggressively via a "Memory Worthiness" gate.
 4. **Retrieval should feel like recalling a journey**: Narrative coherence over raw similarity scores.
+5. **Defense-in-depth validation**: Input sanitization (length limits, type checking), LLM output sanitization (topics/entities filtering), and automatic retry logic for API failures ensure robustness in production.
 
 ## Storage Choice: SQLite + FAISS
 

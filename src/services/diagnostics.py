@@ -41,6 +41,7 @@ class VectorStoreStatus:
     dimension_match: bool
     indexes: Dict[str, int]  # name -> count
     total_vectors: int
+    has_unsaved_changes: bool = False
 
 
 @dataclass
@@ -329,10 +330,13 @@ class DiagnosticsService:
         
         indexes = {}
         total = 0
+        has_unsaved = False
         for name, info in vs_stats.items():
             count = info.get('count', 0)
             indexes[name] = count
             total += count
+            if info.get('has_unsaved_changes', False):
+                has_unsaved = True
         
         return VectorStoreStatus(
             index_type="IndexFlatIP (Inner Product)",
@@ -340,7 +344,8 @@ class DiagnosticsService:
             dimension=vs.dimension,
             dimension_match=(vs.dimension == embedding_dim),
             indexes=indexes,
-            total_vectors=total
+            total_vectors=total,
+            has_unsaved_changes=has_unsaved
         )
     
     def _get_eval_readiness(
@@ -404,6 +409,12 @@ class DiagnosticsService:
             suggestions.append("# Fix mock LLM - use Ollama (local):")
             suggestions.append("export LLM_PROVIDER=ollama")
             suggestions.append("export OLLAMA_MODEL=qwen2.5:7b-instruct")
+        
+        if vector_store.has_unsaved_changes:
+            suggestions.append("")
+            suggestions.append("# Persist unsaved vectors to disk:")
+            suggestions.append("# In Python: vector_store.save()")
+            suggestions.append("# Or use auto_save=True when initializing VectorStore")
         
         return suggestions
 

@@ -254,7 +254,18 @@ def _doctor_full(ctx: click.Context, use_mock: bool) -> None:
         table4.add_row(f"  {idx_name} vectors", str(count))
     table4.add_row("Total vectors", str(vs.total_vectors))
     
+    if vs.has_unsaved_changes:
+        table4.add_row("Unsaved changes", "[yellow]⚠ YES[/yellow]")
+    
     console.print(table4)
+    
+    if vs.has_unsaved_changes:
+        console.print(Panel(
+            "[yellow]⚠ Warning: Some vectors have not been persisted to disk[/yellow]\n\n"
+            "Call vector_store.save() or use auto_save=True when initializing VectorStore.",
+            border_style="yellow"
+        ))
+    
     console.print()
     
     # Evaluation Readiness

@@ -162,14 +162,45 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding vector.
+            
+        Raises:
+            openai.APIError: If the request fails after retries.
         """
-        response = self._client.embeddings.create(
-            model=self._model,
-            input=text,
-            dimensions=self._dimension
-        )
-        embedding = np.array(response.data[0].embedding, dtype=np.float32)
-        return _normalize_l2(embedding)
+        import time
+        from openai import APIError, APITimeoutError, RateLimitError
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self._client.embeddings.create(
+                    model=self._model,
+                    input=text,
+                    dimensions=self._dimension,
+                    timeout=30.0
+                )
+                embedding = np.array(response.data[0].embedding, dtype=np.float32)
+                return _normalize_l2(embedding)
+            except (APITimeoutError, APIError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.warning(
+                        "OpenAI API error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries, wait_time, e
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error("OpenAI embed failed after %d attempts", max_retries)
+                    raise
+            except RateLimitError as e:
+                if attempt < max_retries - 1:
+                    wait_time = 5 * (attempt + 1)  # Longer wait for rate limits
+                    logger.warning(
+                        "OpenAI rate limit (attempt %d/%d), waiting %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch using the OpenAI embeddings API.
@@ -179,19 +210,50 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding matrix of shape `(len(texts), dimension)`.
+            
+        Raises:
+            openai.APIError: If the request fails after retries.
         """
+        import time
+        from openai import APIError, APITimeoutError, RateLimitError
+        
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
         
-        response = self._client.embeddings.create(
-            model=self._model,
-            input=texts,
-            dimensions=self._dimension
-        )
-        
-        embeddings = [item.embedding for item in response.data]
-        embeddings = np.array(embeddings, dtype=np.float32)
-        return _normalize_l2(embeddings)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self._client.embeddings.create(
+                    model=self._model,
+                    input=texts,
+                    dimensions=self._dimension,
+                    timeout=60.0  # Longer for batches
+                )
+                
+                embeddings = [item.embedding for item in response.data]
+                embeddings = np.array(embeddings, dtype=np.float32)
+                return _normalize_l2(embeddings)
+            except (APITimeoutError, APIError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.warning(
+                        "OpenAI batch embed error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries, wait_time, e
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error("OpenAI batch embed failed after %d attempts", max_retries)
+                    raise
+            except RateLimitError as e:
+                if attempt < max_retries - 1:
+                    wait_time = 5 * (attempt + 1)
+                    logger.warning(
+                        "OpenAI rate limit on batch (attempt %d/%d), waiting %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
 
 
 class LocalEmbeddingProvider(EmbeddingProvider):
@@ -377,20 +439,43 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             The detected embedding vector length, or a conservative default on failure.
         """
         import httpx
+        import time
         
-        try:
-            response = httpx.post(
-                f"{self._base_url}/api/embeddings",
-                json={"model": self._model, "prompt": "test"},
-                timeout=30.0
-            )
-            response.raise_for_status()
-            embedding = response.json()["embedding"]
-            return len(embedding)
-        except Exception as e:
-            logger.warning(f"Could not detect Ollama embedding dimension: {e}")
-            # Default dimension for nomic-embed-text
-            return 768
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = httpx.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": self._model, "prompt": "test"},
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                embedding = response.json()["embedding"]
+                detected_dim = len(embedding)
+                logger.info("Detected Ollama embedding dimension: %d", detected_dim)
+                return detected_dim
+            except httpx.TimeoutException:
+                logger.warning(
+                    "Timeout detecting Ollama dimension (attempt %d/%d)",
+                    attempt + 1, max_retries
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(1 * (attempt + 1))  # Exponential backoff
+            except Exception as e:
+                logger.warning(
+                    "Could not detect Ollama embedding dimension (attempt %d/%d): %s",
+                    attempt + 1, max_retries, e
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(1 * (attempt + 1))
+        
+        # Default dimension for nomic-embed-text after all retries fail
+        logger.warning(
+            "Failed to detect dimension after %d attempts. Using default: 768. "
+            "This may cause index dimension mismatches if your model differs.",
+            max_retries
+        )
+        return 768
     
     @property
     def dimension(self) -> int:
@@ -418,18 +503,46 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding vector.
+            
+        Raises:
+            httpx.HTTPError: If the request fails after retries.
         """
         import httpx
+        import time
         
-        response = httpx.post(
-            f"{self._base_url}/api/embeddings",
-            json={"model": self._model, "prompt": text},
-            timeout=30.0
-        )
-        response.raise_for_status()
-        
-        embedding = np.array(response.json()["embedding"], dtype=np.float32)
-        return _normalize_l2(embedding)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = httpx.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": self._model, "prompt": text},
+                    timeout=60.0  # Increased timeout for larger inputs
+                )
+                response.raise_for_status()
+                
+                embedding = np.array(response.json()["embedding"], dtype=np.float32)
+                return _normalize_l2(embedding)
+            except httpx.TimeoutException as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4 seconds
+                    logger.warning(
+                        "Ollama embed timeout (attempt %d/%d), retrying in %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error("Ollama embed failed after %d attempts", max_retries)
+                    raise
+            except httpx.HTTPError as e:
+                if attempt < max_retries - 1 and e.response.status_code >= 500:
+                    wait_time = 2 ** attempt
+                    logger.warning(
+                        "Ollama server error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries, wait_time, e
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
     
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch by calling Ollama per item.

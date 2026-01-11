@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from ..llm import LLMProvider
 from ..models import Episode, MemoryType
 from ..prompts import PromptTemplates
-from ..utils import as_list, as_str, as_float
+from ..utils import as_list, as_str, as_float, sanitize_topics, sanitize_entities
 
 
 @dataclass
@@ -103,8 +103,8 @@ class EpisodeExtractor:
             occurred_at = timestamp + offset
             
             # Sanitize all LLM output fields
-            topics = as_list(result.get("topics"))
-            entities = as_list(result.get("entities"))
+            topics = sanitize_topics(result.get("topics"))
+            entities = sanitize_entities(result.get("entities"))
             importance = as_float(result.get("importance"), default=0.5)
             content = as_str(result.get("content"), default=text) or text
             

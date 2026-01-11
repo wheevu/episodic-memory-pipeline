@@ -257,3 +257,104 @@ def safe_get_nested(data: dict, *keys: str, default: Any = None) -> Any:
             return default
     return current
 
+
+def sanitize_string_list(
+    items: list,
+    max_items: int = 20,
+    max_length: int = 100,
+    strip_chars: str = " \t\n\r\"'",
+) -> list[str]:
+    """
+    Sanitize a list of strings (topics, entities, etc.) from LLM output.
+    
+    Args:
+        items: List of strings from LLM response
+        max_items: Maximum number of items to keep
+        max_length: Maximum length per item (chars)
+        strip_chars: Characters to strip from each item
+        
+    Returns:
+        A sanitized list of strings, filtered and truncated.
+        
+    Examples:
+        >>> sanitize_string_list(["topic1", "topic2", "  topic3  "])
+        ['topic1', 'topic2', 'topic3']
+        >>> sanitize_string_list(["a" * 200], max_length=10)
+        ['aaaaaaaaaa']
+        >>> sanitize_string_list(list(range(30)), max_items=5)
+        []
+    """
+    if not isinstance(items, list):
+        return []
+    
+    result = []
+    for item in items:
+        # Only keep strings
+        if not isinstance(item, str):
+            continue
+        
+        # Strip and filter empty
+        cleaned = item.strip(strip_chars)
+        if not cleaned:
+            continue
+        
+        # Truncate if too long
+        if len(cleaned) > max_length:
+            cleaned = cleaned[:max_length]
+        
+        result.append(cleaned)
+        
+        # Stop if we've reached the limit
+        if len(result) >= max_items:
+            break
+    
+    return result
+
+
+def sanitize_topics(topics: Any, max_topics: int = 20, max_length: int = 100) -> list[str]:
+    """
+    Sanitize topics from LLM output.
+    
+    Args:
+        topics: Topics value from LLM response
+        max_topics: Maximum number of topics to keep
+        max_length: Maximum length per topic (chars)
+        
+    Returns:
+        A sanitized list of topic strings.
+        
+    Examples:
+        >>> sanitize_topics(["work", "learning", "  health  "])
+        ['work', 'learning', 'health']
+        >>> sanitize_topics(None)
+        []
+        >>> sanitize_topics([1, 2, "valid"])
+        ['valid']
+    """
+    items = as_list(topics)
+    return sanitize_string_list(items, max_items=max_topics, max_length=max_length)
+
+
+def sanitize_entities(entities: Any, max_entities: int = 50, max_length: int = 100) -> list[str]:
+    """
+    Sanitize entities from LLM output.
+    
+    Args:
+        entities: Entities value from LLM response
+        max_entities: Maximum number of entities to keep
+        max_length: Maximum length per entity (chars)
+        
+    Returns:
+        A sanitized list of entity strings.
+        
+    Examples:
+        >>> sanitize_entities(["John", "OpenAI", "  Python  "])
+        ['John', 'OpenAI', 'Python']
+        >>> sanitize_entities(None)
+        []
+        >>> sanitize_entities(["a" * 200], max_length=50)
+        ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']
+    """
+    items = as_list(entities)
+    return sanitize_string_list(items, max_items=max_entities, max_length=max_length)
+

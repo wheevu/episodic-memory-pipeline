@@ -63,26 +63,48 @@ class LLMProvider(ABC):
         Raises:
             ValueError: If JSON cannot be extracted/parsed from the text.
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Try direct parse first
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
         
-        # Try to find JSON block in markdown
-        # Many models wrap JSON in ```json ... ``` fences; extract the first object block.
+        # Try to find JSON block in markdown code fences
+        # Pattern: ```json {...} ``` or ``` {...} ```
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group(1))
-        
-        # Try to find any JSON object
-        json_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-        if json_match:
             try:
-                return json.loads(json_match.group(0))
-            except json.JSONDecodeError:
-                pass
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError as e:
+                logger.debug("Failed to parse JSON from markdown block: %s", e)
         
+        # Try to find the first complete JSON object (handling nested braces)
+        # This is more robust than the simple pattern
+        brace_count = 0
+        start_idx = None
+        for i, char in enumerate(text):
+            if char == '{':
+                if start_idx is None:
+                    start_idx = i
+                brace_count += 1
+            elif char == '}':
+                if start_idx is not None:
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found complete JSON object
+                        candidate = text[start_idx:i+1]
+                        try:
+                            return json.loads(candidate)
+                        except json.JSONDecodeError:
+                            # Reset and look for next object
+                            start_idx = None
+                            brace_count = 0
+        
+        # If we still haven't found valid JSON, log the text for debugging
+        logger.warning("Could not extract JSON from LLM response: %s", text[:200])
         raise ValueError(f"Could not extract JSON from response: {text[:200]}...")
 
 
@@ -123,17 +145,49 @@ class OpenAILLMProvider(LLMProvider):
 
         Returns:
             The model-generated completion text.
+            
+        Raises:
+            openai.APIError: If the request fails after retries.
         """
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that outputs structured data. Always respond with valid JSON when requested."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=self._max_tokens,
-        )
-        return response.choices[0].message.content
+        import time
+        from openai import APIError, APITimeoutError, RateLimitError
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant that outputs structured data. Always respond with valid JSON when requested."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=temperature,
+                    max_tokens=self._max_tokens,
+                    timeout=30.0
+                )
+                return response.choices[0].message.content
+            except (APITimeoutError, APIError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "OpenAI API error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries, wait_time, e
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
+            except RateLimitError as e:
+                if attempt < max_retries - 1:
+                    wait_time = 5 * (attempt + 1)
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "OpenAI rate limit (attempt %d/%d), waiting %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
 
 
 class OllamaLLMProvider(LLMProvider):
@@ -199,46 +253,78 @@ CRITICAL RULES:
             The model-generated completion text.
 
         Raises:
-            ConnectionError: If the Ollama server cannot be reached.
+            ConnectionError: If the Ollama server cannot be reached after retries.
             ValueError: If the requested model is not found.
             httpx.HTTPError: For other HTTP-layer failures.
         """
         import httpx
+        import time
         
         temp = temperature if temperature is not None else self._default_temperature
         
-        try:
-            response = httpx.post(
-                f"{self._base_url}/api/generate",
-                json={
-                    "model": self._model,
-                    "prompt": prompt,
-                    "system": self.SYSTEM_PROMPT,
-                    "stream": False,
-                    "options": {
-                        "temperature": temp,
-                        "num_predict": self._max_tokens,
-                        # Qwen-specific optimizations
-                        "top_p": 0.9,
-                        "repeat_penalty": 1.1,
-                    }
-                },
-                timeout=120.0  # Longer timeout for local inference
-            )
-            response.raise_for_status()
-            return response.json()["response"]
-        except httpx.ConnectError:
-            raise ConnectionError(
-                f"Could not connect to Ollama at {self._base_url}. "
-                f"Make sure Ollama is running: `ollama serve`"
-            )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise ValueError(
-                    f"Model '{self._model}' not found. "
-                    f"Pull it first: `ollama pull {self._model}`"
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = httpx.post(
+                    f"{self._base_url}/api/generate",
+                    json={
+                        "model": self._model,
+                        "prompt": prompt,
+                        "system": self.SYSTEM_PROMPT,
+                        "stream": False,
+                        "options": {
+                            "temperature": temp,
+                            "num_predict": self._max_tokens,
+                            # Qwen-specific optimizations
+                            "top_p": 0.9,
+                            "repeat_penalty": 1.1,
+                        }
+                    },
+                    timeout=120.0  # Longer timeout for local inference
                 )
-            raise
+                response.raise_for_status()
+                return response.json()["response"]
+            except httpx.ConnectError as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Cannot connect to Ollama (attempt %d/%d), retrying in %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise ConnectionError(
+                        f"Could not connect to Ollama at {self._base_url} after {max_retries} attempts. "
+                        f"Make sure Ollama is running: `ollama serve`"
+                    ) from e
+            except httpx.TimeoutException as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Ollama timeout (attempt %d/%d), retrying in %ds",
+                        attempt + 1, max_retries, wait_time
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    raise ValueError(
+                        f"Model '{self._model}' not found. "
+                        f"Pull it first: `ollama pull {self._model}`"
+                    ) from e
+                elif e.response.status_code >= 500 and attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Ollama server error (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1, max_retries, wait_time, e
+                    )
+                    time.sleep(wait_time)
+                else:
+                    raise
     
     def is_available(self) -> bool:
         """Return True if the Ollama server is reachable.

@@ -20,6 +20,18 @@ from .commands import ingest, query, eval_cmd, doctor, demo
 
 # Global cache for components
 _components: Optional[PipelineComponents] = None
+_components_mock_state: Optional[bool] = None
+
+
+def reset_components() -> None:
+    """Reset the cached components. Useful for testing or when switching providers.
+    
+    Returns:
+        None.
+    """
+    global _components, _components_mock_state
+    _components = None
+    _components_mock_state = None
 
 
 def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
@@ -32,10 +44,15 @@ def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
     Returns:
         PipelineComponents with all initialized components
     """
-    global _components
+    global _components, _components_mock_state
     
-    if _components is None or use_mock:
+    # Invalidate cache if mock state changed
+    if _components is not None and _components_mock_state != use_mock:
+        _components = None
+    
+    if _components is None:
         _components = get_components(config=config, force_mock=use_mock, verbose=True)
+        _components_mock_state = use_mock
     
     return _components
 

@@ -2,12 +2,14 @@
 Configuration management for the episodic memory pipeline.
 """
 import os
+import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +59,8 @@ class Config:
         - Read configuration overrides from environment variables.
         - Derive embedding dimensions for known models/providers (when not explicitly set).
 
+        Note: Directory creation is deferred until first access via ensure_directories().
+
         Returns:
             None.
         """
@@ -96,9 +100,6 @@ class Config:
         
         # Update embedding dimension based on provider/model
         self._configure_embedding_dimension()
-        
-        # Ensure data directory exists
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
     
     def _configure_embedding_dimension(self) -> None:
         """Set embedding dimension based on provider and model.
@@ -132,6 +133,22 @@ class Config:
             self.embedding_dimension = model_dimensions.get(self.ollama_embed_model, 768)
         elif self.embedding_provider == "mock":
             self.embedding_dimension = 1024  # Match BGE-M3 for consistency
+    
+    def ensure_directories(self) -> None:
+        """Create necessary directories if they don't exist.
+        
+        This is called lazily by components that need to write to disk,
+        rather than eagerly during config initialization.
+        
+        Returns:
+            None.
+        """
+        try:
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug("Ensured directory exists: %s", self.database_path.parent)
+        except Exception as e:
+            logger.warning("Failed to create directory %s: %s", self.database_path.parent, e)
+            raise
 
 
 # Global config instance

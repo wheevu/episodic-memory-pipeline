@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +45,29 @@ class VectorStore:
     - Supports incremental additions and persistence
     """
     
-    def __init__(self, base_path: Path, dimension: int = 1536) -> None:
+    def __init__(self, base_path: Path, dimension: int = 1536, auto_save: bool = False) -> None:
         """Initialize a FAISS-backed vector store with per-entity indices.
 
         Args:
             base_path: Base path used to derive index filenames on disk.
             dimension: Embedding dimensionality expected by all indices.
+            auto_save: If True, automatically persist after each modification.
         """
         self.base_path = base_path
         self.dimension = dimension
+        self.auto_save = auto_save
         
         # Ensure directory exists
-        self.base_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.base_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.error("Failed to create vector store directory: %s", e)
+            raise
         
         # Initialize or load indices
         self._indices: dict[str, faiss.Index] = {}
         self._id_maps: dict[str, list[str]] = {}  # Maps FAISS IDs to record IDs
+        self._dirty: set[str] = set()  # Track which indices have unsaved changes
         
         self._load_or_create_indices()
     
@@ -99,24 +107,29 @@ class VectorStore:
                     self._id_maps[name] = []
 
                 if self._indices[name].d != self.dimension:
-                    logger.warning(
-                        "Index %s dimension mismatch (%s != %s); resetting index",
+                    logger.error(
+                        "Index '%s' dimension mismatch: expected %d but found %d. "
+                        "Resetting index (all vectors will be lost). "
+                        "To avoid this, ensure EMBEDDING_DIMENSION matches your model.",
                         name,
-                        self._indices[name].d,
                         self.dimension,
+                        self._indices[name].d,
                     )
                     self._indices[name] = faiss.IndexFlatIP(self.dimension)
                     self._id_maps[name] = []
+                    self._dirty.add(name)  # Mark as dirty to force persistence
 
                 if len(self._id_maps[name]) != self._indices[name].ntotal:
-                    logger.warning(
-                        "Index %s id map mismatch (ids=%s, vectors=%s); resetting index",
+                    logger.error(
+                        "Index '%s' id map mismatch: %d IDs but %d vectors. "
+                        "This indicates corruption. Resetting index (all vectors will be lost).",
                         name,
                         len(self._id_maps[name]),
                         self._indices[name].ntotal,
                     )
                     self._indices[name] = faiss.IndexFlatIP(self.dimension)
                     self._id_maps[name] = []
+                    self._dirty.add(name)  # Mark as dirty to force persistence
             else:
                 # Create flat L2 index (exact search)
                 # Use inner-product on unit-normalized vectors to compute cosine similarity.
@@ -166,6 +179,10 @@ class VectorStore:
         faiss_id = self._indices[index_name].ntotal
         self._indices[index_name].add(embedding)
         self._id_maps[index_name].append(record_id)
+        self._dirty.add(index_name)
+        
+        if self.auto_save:
+            self.save(index_name)
         
         return faiss_id
     
@@ -205,6 +222,10 @@ class VectorStore:
         # Add to index
         self._indices[index_name].add(embeddings)
         self._id_maps[index_name].extend(record_ids)
+        self._dirty.add(index_name)
+        
+        if self.auto_save:
+            self.save(index_name)
         
         return list(range(start_id, start_id + len(record_ids)))
     
@@ -293,13 +314,22 @@ class VectorStore:
         
         return filtered[:k]
     
-    def save(self) -> None:
-        """Persist all indices and ID maps to disk.
+    def save(self, index_name: Optional[str] = None) -> None:
+        """Persist indices and ID maps to disk.
+
+        Args:
+            index_name: If provided, save only this index. Otherwise save all dirty indices.
 
         Returns:
             None.
         """
-        for name in self._indices:
+        indices_to_save = [index_name] if index_name else list(self._dirty)
+        
+        for name in indices_to_save:
+            if name not in self._indices:
+                logger.warning("Cannot save unknown index: %s", name)
+                continue
+                
             if len(self._id_maps[name]) != self._indices[name].ntotal:
                 logger.error(
                     "Skipping save for %s: id map mismatch (ids=%s, vectors=%s)",
@@ -308,14 +338,48 @@ class VectorStore:
                     self._indices[name].ntotal,
                 )
                 continue
-            faiss.write_index(
-                self._indices[name],
-                str(self._index_path(name))
-            )
-            np.save(
-                str(self._id_map_path(name)),
-                np.array(self._id_maps[name], dtype=object)
-            )
+            
+            try:
+                faiss.write_index(
+                    self._indices[name],
+                    str(self._index_path(name))
+                )
+                np.save(
+                    str(self._id_map_path(name)),
+                    np.array(self._id_maps[name], dtype=object)
+                )
+                self._dirty.discard(name)
+                logger.debug("Saved index '%s' with %d vectors", name, self._indices[name].ntotal)
+            except Exception as e:
+                logger.error("Failed to save index '%s': %s", name, e)
+                raise
+    
+    def has_unsaved_changes(self) -> bool:
+        """Check if there are unsaved changes to any index.
+
+        Returns:
+            True if any index has been modified since the last save.
+        """
+        return len(self._dirty) > 0
+    
+    @contextmanager
+    def batch_operation(self):
+        """Context manager for batch operations with automatic persistence.
+        
+        Usage:
+            with vector_store.batch_operation():
+                vector_store.add("episodes", id1, emb1)
+                vector_store.add("episodes", id2, emb2)
+            # Automatically saves on exit
+        
+        Yields:
+            Self for chaining operations.
+        """
+        try:
+            yield self
+        finally:
+            if self._dirty:
+                self.save()
     
     def get_record_id(self, index_name: str, faiss_id: int) -> Optional[str]:
         """Resolve a FAISS internal ID back to the corresponding record ID.
@@ -337,12 +401,13 @@ class VectorStore:
         """Return basic index statistics for monitoring/debugging.
 
         Returns:
-            A dictionary keyed by index name containing count and dimension.
+            A dictionary keyed by index name containing count, dimension, and dirty status.
         """
         return {
             name: {
                 "count": self._indices[name].ntotal,
-                "dimension": self.dimension
+                "dimension": self.dimension,
+                "has_unsaved_changes": name in self._dirty
             }
             for name in self._indices
         }

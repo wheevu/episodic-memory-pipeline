@@ -16,6 +16,10 @@ Test Categories:
    - Run with: pytest -m slow
    - Or run all: pytest --run-slow
 
+3. Tests requiring FAISS (@pytest.mark.requires_faiss):
+   - Automatically skipped if faiss-cpu is not installed
+   - Most pipeline tests fall into this category
+
 IMPORTANT: macOS FAISS/SentenceTransformers Note
 ================================================
 On macOS, there's a known issue where FAISS and SentenceTransformers can
@@ -62,6 +66,10 @@ def pytest_configure(config: Any) -> None:
         "markers",
         "slow: marks tests as slow (require model downloads, may take > 5s)"
     )
+    config.addinivalue_line(
+        "markers",
+        "requires_faiss: marks tests that require FAISS to be installed"
+    )
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
@@ -71,6 +79,8 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     By default (without --run-slow), slow tests are skipped.
     With --run-slow, all tests run.
     With -m slow, only slow tests run.
+    
+    Tests marked with requires_faiss are automatically skipped if faiss is not available.
 
     Args:
         config: Pytest configuration object.
@@ -79,18 +89,31 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     Returns:
         None.
     """
+    # Check for FAISS availability
+    try:
+        import faiss
+        has_faiss = True
+    except ImportError:
+        has_faiss = False
+    
+    # Handle slow tests
     if config.getoption("--run-slow"):
         # --run-slow given: don't skip slow tests
-        return
+        pass
+    else:
+        # Check if user explicitly requested slow tests with -m slow
+        markexpr = config.getoption("-m", default="")
+        if not (markexpr and "slow" in markexpr and "not slow" not in markexpr):
+            # Skip slow tests by default
+            skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
+            for item in items:
+                if "slow" in item.keywords:
+                    item.add_marker(skip_slow)
     
-    # Check if user explicitly requested slow tests with -m slow
-    markexpr = config.getoption("-m", default="")
-    if markexpr and "slow" in markexpr and "not slow" not in markexpr:
-        # User wants slow tests, don't skip them
-        return
-    
-    skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
-    for item in items:
-        if "slow" in item.keywords:
-            item.add_marker(skip_slow)
+    # Handle FAISS-dependent tests
+    if not has_faiss:
+        skip_faiss = pytest.mark.skip(reason="FAISS not installed (pip install faiss-cpu)")
+        for item in items:
+            if "requires_faiss" in item.keywords:
+                item.add_marker(skip_faiss)
 

@@ -18,6 +18,9 @@ from src.consolidation import ConsolidationPipeline
 from src.retrieval import RetrievalEngine
 from src.models import Episode, Fact, Summary, MemoryType
 
+# Mark all tests in this module as requiring FAISS
+pytestmark = pytest.mark.requires_faiss
+
 
 @pytest.fixture
 def temp_dir() -> Path:
