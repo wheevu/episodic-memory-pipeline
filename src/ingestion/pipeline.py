@@ -127,6 +127,7 @@ class IngestionPipeline:
         timestamp: Optional[datetime] = None,
         context: Optional[str] = None,
         force: bool = False,
+        persist_vectors: bool = True,
     ) -> IngestionResult:
         """Ingest a piece of text and (optionally) store it as an episode.
 
@@ -137,6 +138,7 @@ class IngestionPipeline:
             timestamp: When the input occurred; defaults to current UTC time.
             context: Optional extra context for classification.
             force: If True, bypass worthiness checks and store anyway.
+            persist_vectors: If True, persist vector indexes to disk.
 
         Returns:
             An `IngestionResult` describing whether storage occurred and why.
@@ -192,22 +194,36 @@ class IngestionPipeline:
         embedding = self.embedding_provider.embed_text(embedding_text)
         
         # Stage 4: Storage
-        # First save to database to get ID
+        # Save episode first (embedding_id set after vector insert)
         self.database.save_episode(episode)
         
-        # Then add to vector store
-        embedding_id = self.vector_store.add(
-            "episodes",
-            episode.id,
-            embedding
-        )
+        try:
+            embedding_id = self.vector_store.add(
+                "episodes",
+                episode.id,
+                embedding
+            )
+        except Exception as exc:
+            self.database.set_episode_active(episode.id, False)
+            return IngestionResult.skipped(
+                f"Vector store error: {exc}",
+                classification
+            )
         
         # Update episode with embedding ID
         episode.embedding_id = embedding_id
-        self.database.update_embedding_id("episodes", episode.id, embedding_id)
+        try:
+            self.database.update_embedding_id("episodes", episode.id, embedding_id)
+        except Exception as exc:
+            self.database.set_episode_active(episode.id, False)
+            return IngestionResult.skipped(
+                f"Embedding update error: {exc}",
+                classification
+            )
         
         # Persist vector store
-        self.vector_store.save()
+        if persist_vectors:
+            self.vector_store.save()
         
         return IngestionResult.stored(episode, classification, extraction)
     
@@ -217,6 +233,8 @@ class IngestionPipeline:
         source: str = "chat",
         session_id: Optional[str] = None,
         timestamp: Optional[datetime] = None,
+        force: bool = False,
+        persist_vectors: bool = True,
     ) -> list[IngestionResult]:
         """Ingest multiple texts sequentially.
 
@@ -225,6 +243,8 @@ class IngestionPipeline:
             source: Source label applied to all inputs.
             session_id: Optional session identifier applied to all inputs.
             timestamp: Optional timestamp applied to all inputs.
+            force: If True, bypass worthiness checks for all inputs.
+            persist_vectors: If True, persist vector indexes once at the end.
 
         Returns:
             A list of `IngestionResult`, one per input text.
@@ -232,14 +252,23 @@ class IngestionPipeline:
         # Note: This remains sequential to preserve ordering and simplicity; embedding
         # could be batched later without changing the public API.
         results: list[IngestionResult] = []
+        stored_any = False
         for text in texts:
             result = self.ingest(
                 text,
                 source=source,
                 session_id=session_id,
                 timestamp=timestamp,
+                force=force,
+                persist_vectors=False,
             )
+            if result.success:
+                stored_any = True
             results.append(result)
+
+        if persist_vectors and stored_any:
+            self.vector_store.save()
+
         return results
     
     def get_statistics(self) -> dict:

@@ -156,7 +156,7 @@ class OllamaLLMProvider(LLMProvider):
 CRITICAL RULES:
 1. ALWAYS respond with valid JSON only - no explanations, no markdown
 2. Follow the exact schema requested in the prompt
-3. Use null for missing optional fields
+3. Never return null; use empty strings/arrays or defaults instead
 4. Be precise and factual in extractions"""
 
     def __init__(
@@ -349,7 +349,7 @@ class MockLLMProvider(LLMProvider):
             return json.dumps({
                 "query_type": "semantic",
                 "time_relevance": "all_time",
-                "time_filter": {"since": None, "until": None},
+                "time_filter": {"since": "", "until": ""},
                 "search_concepts": ["general"],
                 "topic_filters": [],
                 "reformulated_query": "general query"

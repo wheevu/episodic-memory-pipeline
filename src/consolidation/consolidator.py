@@ -8,9 +8,12 @@ Consolidation transforms raw episodic memories into:
 This mimics how human memory consolidates during sleep.
 """
 from datetime import datetime, timedelta
+import logging
 from typing import Optional
 from dataclasses import dataclass
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from ..models import Episode, Fact, Summary
 from ..storage import Database, VectorStore
@@ -135,8 +138,11 @@ class ConsolidationPipeline:
             source_episode_ids=[ep.id for ep in episodes],
             key_episode_ids=summary_result.key_episode_ids
         )
-        embedding_id = self.vector_store.add("summaries", summary.id, summary_embedding)
-        self.database.update_embedding_id("summaries", summary.id, embedding_id)
+        try:
+            embedding_id = self.vector_store.add("summaries", summary.id, summary_embedding)
+            self.database.update_embedding_id("summaries", summary.id, embedding_id)
+        except Exception as exc:
+            logger.warning("Failed to index summary %s: %s", summary.id, exc)
         
         # Extract facts
         fact_result = self.fact_extractor.extract_facts(
@@ -149,18 +155,25 @@ class ConsolidationPipeline:
                 fact.to_embedding_text()
             )
             self.database.save_fact(fact, source_episode_ids=fact_result.source_episode_ids)
-            embedding_id = self.vector_store.add("facts", fact.id, fact_embedding)
-            self.database.update_embedding_id("facts", fact.id, embedding_id)
+            try:
+                embedding_id = self.vector_store.add("facts", fact.id, fact_embedding)
+                self.database.update_embedding_id("facts", fact.id, embedding_id)
+            except Exception as exc:
+                logger.warning("Failed to index fact %s: %s", fact.id, exc)
         
         # Handle updated facts
         for old_id, new_fact in fact_result.updated_facts:
-            self.database.supersede_fact(old_id, new_fact)
             fact_embedding = self.embedding_provider.embed_text(
                 new_fact.to_embedding_text()
             )
             self.database.save_fact(new_fact, source_episode_ids=fact_result.source_episode_ids)
-            embedding_id = self.vector_store.add("facts", new_fact.id, fact_embedding)
-            self.database.update_embedding_id("facts", new_fact.id, embedding_id)
+            try:
+                embedding_id = self.vector_store.add("facts", new_fact.id, fact_embedding)
+                self.database.update_embedding_id("facts", new_fact.id, embedding_id)
+            except Exception as exc:
+                logger.warning("Failed to index updated fact %s: %s", new_fact.id, exc)
+
+            self.database.supersede_fact(old_id, new_fact)
         
         # Handle contradicted facts (mark as inactive)
         for fact_id in fact_result.contradicted_fact_ids:

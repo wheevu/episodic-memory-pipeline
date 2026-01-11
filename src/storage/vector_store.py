@@ -3,10 +3,13 @@ FAISS vector store for semantic similarity search.
 
 Manages vector embeddings for episodes, facts, and summaries.
 """
+import logging
 import numpy as np
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 try:
     import faiss
@@ -93,6 +96,26 @@ class VectorStore:
                 if id_map_path.exists():
                     self._id_maps[name] = list(np.load(str(id_map_path), allow_pickle=True))
                 else:
+                    self._id_maps[name] = []
+
+                if self._indices[name].d != self.dimension:
+                    logger.warning(
+                        "Index %s dimension mismatch (%s != %s); resetting index",
+                        name,
+                        self._indices[name].d,
+                        self.dimension,
+                    )
+                    self._indices[name] = faiss.IndexFlatIP(self.dimension)
+                    self._id_maps[name] = []
+
+                if len(self._id_maps[name]) != self._indices[name].ntotal:
+                    logger.warning(
+                        "Index %s id map mismatch (ids=%s, vectors=%s); resetting index",
+                        name,
+                        len(self._id_maps[name]),
+                        self._indices[name].ntotal,
+                    )
+                    self._indices[name] = faiss.IndexFlatIP(self.dimension)
                     self._id_maps[name] = []
             else:
                 # Create flat L2 index (exact search)
@@ -277,6 +300,14 @@ class VectorStore:
             None.
         """
         for name in self._indices:
+            if len(self._id_maps[name]) != self._indices[name].ntotal:
+                logger.error(
+                    "Skipping save for %s: id map mismatch (ids=%s, vectors=%s)",
+                    name,
+                    len(self._id_maps[name]),
+                    self._indices[name].ntotal,
+                )
+                continue
             faiss.write_index(
                 self._indices[name],
                 str(self._index_path(name))

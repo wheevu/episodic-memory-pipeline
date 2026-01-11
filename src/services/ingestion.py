@@ -108,8 +108,27 @@ class IngestionService:
             List of IngestionResult objects
         """
         results = []
-        for text in texts:
-            result = self.ingest_text(text, source=source, force=force)
-            results.append(result)
+        pipeline_results = self.pipeline.ingest_batch(
+            texts,
+            source=source,
+            session_id=None,
+            timestamp=None,
+            force=force,
+            persist_vectors=True,
+        )
+
+        for result in pipeline_results:
+            results.append(
+                IngestionResult(
+                    success=result.success,
+                    episode=result.episode if result.success else None,
+                    reason=result.reason if not result.success else None,
+                    classification_confidence=(
+                        result.classification.confidence
+                        if result.classification else None
+                    )
+                )
+            )
+
         return results
 

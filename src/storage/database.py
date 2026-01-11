@@ -3,6 +3,7 @@ SQLite database layer for structured memory storage.
 
 Handles persistence of Episodes, Facts, Summaries, and their relationships.
 """
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional, Iterator
@@ -71,6 +72,77 @@ class Database:
             
             with self._connection() as conn:
                 conn.executescript(schema_sql)
+
+    def _apply_topic_delta(self, conn: sqlite3.Connection, topic: str, delta: int) -> None:
+        """Apply an increment/decrement to a topic's episode count.
+
+        Args:
+            conn: Active SQLite connection.
+            topic: Topic name to update.
+            delta: Positive or negative increment.
+
+        Returns:
+            None.
+        """
+        if delta == 0:
+            return
+        if delta > 0:
+            conn.execute(
+                """
+                INSERT INTO topics (name, episode_count)
+                VALUES (?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    episode_count = episode_count + ?
+                """,
+                (topic, delta, delta)
+            )
+        else:
+            conn.execute(
+                "UPDATE topics SET episode_count = episode_count + ? WHERE name = ?",
+                (delta, topic)
+            )
+            conn.execute(
+                "DELETE FROM topics WHERE name = ? AND episode_count <= 0",
+                (topic,)
+            )
+
+    def _reconcile_topic_counts(
+        self,
+        conn: sqlite3.Connection,
+        previous_topics: set[str],
+        new_topics: set[str],
+        previous_active: bool,
+        new_active: bool,
+    ) -> None:
+        """Reconcile topic counts when an episode changes.
+
+        Args:
+            conn: Active SQLite connection.
+            previous_topics: Topics before the change.
+            new_topics: Topics after the change.
+            previous_active: Previous active state.
+            new_active: New active state.
+
+        Returns:
+            None.
+        """
+        if previous_active and not new_active:
+            removed = previous_topics
+            added = set()
+        elif not previous_active and new_active:
+            removed = set()
+            added = new_topics
+        elif not previous_active and not new_active:
+            removed = set()
+            added = set()
+        else:
+            removed = previous_topics - new_topics
+            added = new_topics - previous_topics
+
+        for topic in added:
+            self._apply_topic_delta(conn, topic, 1)
+        for topic in removed:
+            self._apply_topic_delta(conn, topic, -1)
     
     # =========================================================================
     # Episode Operations
@@ -88,6 +160,19 @@ class Database:
         row = episode.to_db_row()
         
         with self._connection() as conn:
+            existing = conn.execute(
+                "SELECT topics, is_active FROM episodes WHERE id = ?",
+                (episode.id,)
+            ).fetchone()
+            previous_topics = set()
+            previous_active = False
+            if existing:
+                stored_topics = existing["topics"]
+                if isinstance(stored_topics, str):
+                    stored_topics = json.loads(stored_topics)
+                previous_topics = set(stored_topics or [])
+                previous_active = bool(existing["is_active"])
+
             conn.execute("""
                 INSERT OR REPLACE INTO episodes (
                     id, created_at, occurred_at, raw_input, content,
@@ -99,15 +184,16 @@ class Database:
                     :source, :session_id, :is_active, :consolidated, :embedding_id
                 )
             """, row)
-            
-            # Update topic counts
-            for topic in episode.topics:
-                conn.execute("""
-                    INSERT INTO topics (name, episode_count)
-                    VALUES (?, 1)
-                    ON CONFLICT(name) DO UPDATE SET
-                        episode_count = episode_count + 1
-                """, (topic,))
+
+            new_topics = set(episode.topics or [])
+            new_active = bool(episode.is_active)
+            self._reconcile_topic_counts(
+                conn,
+                previous_topics,
+                new_topics,
+                previous_active,
+                new_active,
+            )
         
         return episode.id
     
@@ -159,9 +245,10 @@ class Database:
         params: list[object] = []
         
         if topic:
-            # Stored as JSON string; `LIKE` keeps dependencies minimal vs JSON1 predicates.
-            conditions.append("topics LIKE ?")
-            params.append(f'%"{topic}"%')
+            conditions.append(
+                "EXISTS (SELECT 1 FROM json_each(episodes.topics) WHERE json_each.value = ?)"
+            )
+            params.append(topic)
         
         if memory_type:
             conditions.append("memory_type = ?")
@@ -191,6 +278,45 @@ class Database:
             cursor = conn.execute(query, params)
             return [Episode.from_db_row(dict(row)) for row in cursor.fetchall()]
     
+    def set_episode_active(self, episode_id: str, is_active: bool) -> None:
+        """Set an episode's active flag and reconcile topic counts.
+
+        Args:
+            episode_id: Episode ID to update.
+            is_active: New active state.
+
+        Returns:
+            None.
+        """
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT topics, is_active FROM episodes WHERE id = ?",
+                (episode_id,)
+            ).fetchone()
+            if not row:
+                return
+
+            current_active = bool(row["is_active"])
+            if current_active == is_active:
+                return
+
+            stored_topics = row["topics"]
+            if isinstance(stored_topics, str):
+                stored_topics = json.loads(stored_topics)
+            topics = set(stored_topics or [])
+
+            conn.execute(
+                "UPDATE episodes SET is_active = ? WHERE id = ?",
+                (is_active, episode_id)
+            )
+            self._reconcile_topic_counts(
+                conn,
+                topics,
+                topics,
+                current_active,
+                is_active,
+            )
+
     def mark_episodes_consolidated(self, episode_ids: list[str]) -> None:
         """Mark episodes as consolidated in bulk.
 
