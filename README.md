@@ -12,7 +12,7 @@ This system models human-like memory consolidation by separating **Episodic Memo
 ## Quick Start (Reproducible Demo)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/wheevu/episodic-memory-pipeline
 cd episodic-memory-pipeline
 pip install -e .
 
