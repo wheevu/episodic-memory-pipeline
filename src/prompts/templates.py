@@ -13,7 +13,6 @@ IMPORTANT: All prompts include explicit instructions to:
 - Always include all required fields
 """
 
-
 # Shared JSON output instructions to prevent null values
 JSON_OUTPUT_RULES = """
 CRITICAL JSON RULES:
@@ -27,11 +26,11 @@ CRITICAL JSON RULES:
 
 class PromptTemplates:
     """Collection of prompt templates for memory operations."""
-    
+
     # =========================================================================
     # INGESTION PROMPTS
     # =========================================================================
-    
+
     MEMORY_WORTHINESS = """You are a memory curator for a personal AI assistant. Your job is to determine if a piece of text contains information worth remembering about the user.
 
 INPUT TEXT:
@@ -359,7 +358,7 @@ RELATED SUMMARIES:
 {summaries}
 
 Your task:
-Reconstruct the narrative journey around this topic. Tell the story of what happened, 
+Reconstruct the narrative journey around this topic. Tell the story of what happened,
 capturing the progression, key moments, and how things evolved over time.
 
 The narrative should:
@@ -397,7 +396,7 @@ Example with content:
     # =========================================================================
     # UTILITY METHODS
     # =========================================================================
-    
+
     @classmethod
     def format_episodes_for_prompt(cls, episodes: list, max_chars: int = 4000) -> str:
         """Format episodes for inclusion in prompts.
@@ -411,29 +410,29 @@ Example with content:
         """
         lines = []
         total_chars = 0
-        
+
         for i, ep in enumerate(episodes):
             # Handle both Episode objects and dicts
-            if hasattr(ep, 'occurred_at'):
+            if hasattr(ep, "occurred_at"):
                 timestamp = ep.occurred_at.strftime("%Y-%m-%d %H:%M")
                 content = ep.content
                 ep_id = ep.id[:8]
             else:
-                timestamp = ep.get('occurred_at', 'unknown')
-                content = ep.get('content', str(ep))
-                ep_id = ep.get('id', str(i))[:8]
-            
+                timestamp = ep.get("occurred_at", "unknown")
+                content = ep.get("content", str(ep))
+                ep_id = ep.get("id", str(i))[:8]
+
             line = f"[{timestamp}] ({ep_id}): {content}"
-            
+
             if total_chars + len(line) > max_chars:
                 lines.append(f"... and {len(episodes) - i} more episodes")
                 break
-            
+
             lines.append(line)
             total_chars += len(line)
-        
+
         return "\n".join(lines)
-    
+
     @classmethod
     def format_facts_for_prompt(cls, facts: list, max_chars: int = 2000) -> str:
         """Format facts for inclusion in prompts.
@@ -447,30 +446,30 @@ Example with content:
         """
         lines = []
         total_chars = 0
-        
+
         for i, fact in enumerate(facts):
-            if hasattr(fact, 'content'):
+            if hasattr(fact, "content"):
                 content = fact.content
                 category = fact.category
                 fact_id = fact.id[:8]
                 confidence = fact.confidence
             else:
-                content = fact.get('content', str(fact))
-                category = fact.get('category', 'unknown')
-                fact_id = fact.get('id', str(i))[:8]
-                confidence = fact.get('confidence', 1.0)
-            
+                content = fact.get("content", str(fact))
+                category = fact.get("category", "unknown")
+                fact_id = fact.get("id", str(i))[:8]
+                confidence = fact.get("confidence", 1.0)
+
             line = f"[{fact_id}] ({category}, conf={confidence:.1f}): {content}"
-            
+
             if total_chars + len(line) > max_chars:
                 lines.append(f"... and {len(facts) - i} more facts")
                 break
-            
+
             lines.append(line)
             total_chars += len(line)
-        
+
         return "\n".join(lines) if lines else "No facts available."
-    
+
     @classmethod
     def format_summaries_for_prompt(cls, summaries: list, max_chars: int = 3000) -> str:
         """Format summaries for inclusion in prompts.
@@ -484,27 +483,26 @@ Example with content:
         """
         lines = []
         total_chars = 0
-        
+
         for i, summary in enumerate(summaries):
-            if hasattr(summary, 'content'):
+            if hasattr(summary, "content"):
                 content = summary.content
                 topic = summary.topic
                 time_start = summary.time_start.strftime("%Y-%m-%d")
                 time_end = summary.time_end.strftime("%Y-%m-%d")
             else:
-                content = summary.get('content', str(summary))
-                topic = summary.get('topic', 'unknown')
-                time_start = summary.get('time_start', '?')
-                time_end = summary.get('time_end', '?')
-            
+                content = summary.get("content", str(summary))
+                topic = summary.get("topic", "unknown")
+                time_start = summary.get("time_start", "?")
+                time_end = summary.get("time_end", "?")
+
             line = f"[{topic}: {time_start} to {time_end}]\n{content}\n"
-            
+
             if total_chars + len(line) > max_chars:
                 lines.append(f"... and {len(summaries) - i} more summaries")
                 break
-            
+
             lines.append(line)
             total_chars += len(line)
-        
-        return "\n".join(lines) if lines else "No summaries available."
 
+        return "\n".join(lines) if lines else "No summaries available."

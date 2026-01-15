@@ -9,11 +9,13 @@ Default Configuration:
 - Device: auto-detect (CPU, MPS on Mac, CUDA if available)
 - All embeddings are L2-normalized for cosine similarity via inner product
 """
+
+import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Optional
+
 import numpy as np
-import os
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ def _normalize_l2(vectors: np.ndarray) -> np.ndarray:
     if vectors.ndim == 1:
         norm = np.linalg.norm(vectors)
         return vectors / norm if norm > 0 else vectors
-    
+
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms[norms == 0] = 1  # Avoid division by zero
     return vectors / norms
@@ -38,7 +40,7 @@ def _normalize_l2(vectors: np.ndarray) -> np.ndarray:
 
 class EmbeddingProvider(ABC):
     """Abstract base class for embedding providers."""
-    
+
     @property
     @abstractmethod
     def dimension(self) -> int:
@@ -48,7 +50,7 @@ class EmbeddingProvider(ABC):
             The embedding vector dimensionality.
         """
         pass
-    
+
     @property
     def provider_name(self) -> str:
         """Return provider name for logging/debugging.
@@ -57,7 +59,7 @@ class EmbeddingProvider(ABC):
             A human-readable provider identifier.
         """
         return self.__class__.__name__
-    
+
     @property
     def is_mock(self) -> bool:
         """Return True if this is a mock provider.
@@ -66,7 +68,7 @@ class EmbeddingProvider(ABC):
             True if the provider is a mock; otherwise False.
         """
         return False
-    
+
     @abstractmethod
     def embed_text(self, text: str) -> np.ndarray:
         """Generate an embedding for a single text.
@@ -78,7 +80,7 @@ class EmbeddingProvider(ABC):
             L2-normalized embedding vector as a `np.float32` array.
         """
         pass
-    
+
     @abstractmethod
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for multiple texts.
@@ -91,7 +93,7 @@ class EmbeddingProvider(ABC):
             dtype `np.float32`.
         """
         pass
-    
+
     # Aliases for common naming conventions
     def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
         """Alias for `embed_batch` that returns a list of arrays.
@@ -104,7 +106,7 @@ class EmbeddingProvider(ABC):
         """
         embeddings = self.embed_batch(texts)
         return [embeddings[i] for i in range(embeddings.shape[0])]
-    
+
     def embed_query(self, text: str) -> np.ndarray:
         """Alias for `embed_text`.
 
@@ -119,12 +121,9 @@ class EmbeddingProvider(ABC):
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     """OpenAI embedding provider."""
-    
+
     def __init__(
-        self,
-        api_key: str,
-        model: str = "text-embedding-3-small",
-        dimension: int = 1536
+        self, api_key: str, model: str = "text-embedding-3-small", dimension: int = 1536
     ) -> None:
         """Initialize the OpenAI embedding provider.
 
@@ -138,13 +137,13 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         """
         try:
             from openai import OpenAI
-        except ImportError:
-            raise ImportError("openai package required. Install with: pip install openai")
-        
+        except ImportError as err:
+            raise ImportError("openai package required. Install with: pip install openai") from err
+
         self._client = OpenAI(api_key=api_key)
         self._model = model
         self._dimension = dimension
-    
+
     @property
     def dimension(self) -> int:
         """Return the embedding dimension produced by this provider.
@@ -153,7 +152,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             The embedding vector dimensionality.
         """
         return self._dimension
-    
+
     def embed_text(self, text: str) -> np.ndarray:
         """Generate an embedding using the OpenAI embeddings API.
 
@@ -162,46 +161,49 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding vector.
-            
+
         Raises:
             openai.APIError: If the request fails after retries.
         """
         import time
+
         from openai import APIError, APITimeoutError, RateLimitError
-        
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = self._client.embeddings.create(
-                    model=self._model,
-                    input=text,
-                    dimensions=self._dimension,
-                    timeout=30.0
+                    model=self._model, input=text, dimensions=self._dimension, timeout=30.0
                 )
                 embedding = np.array(response.data[0].embedding, dtype=np.float32)
                 return _normalize_l2(embedding)
             except (APITimeoutError, APIError) as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         "OpenAI API error (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1, max_retries, wait_time, e
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
                     )
                     time.sleep(wait_time)
                 else:
                     logger.error("OpenAI embed failed after %d attempts", max_retries)
                     raise
-            except RateLimitError as e:
+            except RateLimitError:
                 if attempt < max_retries - 1:
                     wait_time = 5 * (attempt + 1)  # Longer wait for rate limits
                     logger.warning(
                         "OpenAI rate limit (attempt %d/%d), waiting %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
                     raise
-    
+
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch using the OpenAI embeddings API.
 
@@ -210,16 +212,17 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding matrix of shape `(len(texts), dimension)`.
-            
+
         Raises:
             openai.APIError: If the request fails after retries.
         """
         import time
+
         from openai import APIError, APITimeoutError, RateLimitError
-        
+
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
-        
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -227,29 +230,34 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                     model=self._model,
                     input=texts,
                     dimensions=self._dimension,
-                    timeout=60.0  # Longer for batches
+                    timeout=60.0,  # Longer for batches
                 )
-                
+
                 embeddings = [item.embedding for item in response.data]
                 embeddings = np.array(embeddings, dtype=np.float32)
                 return _normalize_l2(embeddings)
             except (APITimeoutError, APIError) as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         "OpenAI batch embed error (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1, max_retries, wait_time, e
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
                     )
                     time.sleep(wait_time)
                 else:
                     logger.error("OpenAI batch embed failed after %d attempts", max_retries)
                     raise
-            except RateLimitError as e:
+            except RateLimitError:
                 if attempt < max_retries - 1:
                     wait_time = 5 * (attempt + 1)
                     logger.warning(
                         "OpenAI rate limit on batch (attempt %d/%d), waiting %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
@@ -259,23 +267,20 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 class LocalEmbeddingProvider(EmbeddingProvider):
     """
     Local embedding provider using sentence-transformers.
-    
+
     Default model: BAAI/bge-m3 (excellent multilingual embeddings)
-    
+
     Features:
     - Automatic device selection (CPU, MPS, CUDA)
     - L2-normalized output for cosine similarity
     - Deterministic embeddings
     """
-    
+
     # Default model for high-quality semantic search
     DEFAULT_MODEL = "BAAI/bge-m3"
-    
+
     def __init__(
-        self,
-        model_name: Optional[str] = None,
-        device: Optional[str] = None,
-        normalize: bool = True
+        self, model_name: Optional[str] = None, device: Optional[str] = None, normalize: bool = True
     ) -> None:
         """Initialize the local sentence-transformers embedding provider.
 
@@ -289,32 +294,32 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         """
         try:
             from sentence_transformers import SentenceTransformer
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "sentence-transformers package required. "
                 "Install with: pip install sentence-transformers"
-            )
-        
+            ) from err
+
         # Use environment variable or default
         model_name = model_name or os.getenv("EMBEDDING_MODEL", self.DEFAULT_MODEL)
         device = device or os.getenv("EMBEDDING_DEVICE", None)
-        
+
         # Auto-detect device if not specified
         if device is None:
             device = self._detect_device()
-        
+
         self._model_name = model_name
         self._device = device
         self._normalize = normalize
-        
+
         logger.info(f"Loading embedding model '{model_name}' on device '{device}'")
-        
+
         # Load model with specified device
         self._model = SentenceTransformer(model_name, device=device)
         self._dimension = self._model.get_sentence_embedding_dimension()
-        
+
         logger.info(f"Embedding model loaded: dimension={self._dimension}")
-    
+
     @staticmethod
     def _detect_device() -> str:
         """Auto-detect the best available compute device.
@@ -324,14 +329,15 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         """
         try:
             import torch
+
             if torch.cuda.is_available():
                 return "cuda"
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 return "mps"
         except ImportError:
             pass
         return "cpu"
-    
+
     @property
     def dimension(self) -> int:
         """Return the embedding dimension produced by the loaded model.
@@ -340,7 +346,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             The embedding vector dimensionality.
         """
         return self._dimension
-    
+
     @property
     def provider_name(self) -> str:
         """Return a descriptive provider name including the model identifier.
@@ -349,7 +355,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             A descriptive provider name including the model identifier.
         """
         return f"LocalEmbedding({self._model_name})"
-    
+
     def embed_text(self, text: str) -> np.ndarray:
         """Generate an embedding using the local model.
 
@@ -360,18 +366,16 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             Embedding vector as `np.float32`.
         """
         embedding = self._model.encode(
-            text,
-            convert_to_numpy=True,
-            normalize_embeddings=self._normalize
+            text, convert_to_numpy=True, normalize_embeddings=self._normalize
         )
         embedding = embedding.astype(np.float32)
-        
+
         # Ensure normalized even if model doesn't do it
         if self._normalize:
             embedding = _normalize_l2(embedding)
-        
+
         return embedding
-    
+
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch using the local model.
 
@@ -383,37 +387,37 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
-        
+
         embeddings = self._model.encode(
             texts,
             convert_to_numpy=True,
             normalize_embeddings=self._normalize,
-            show_progress_bar=len(texts) > 10
+            show_progress_bar=len(texts) > 10,
         )
         embeddings = embeddings.astype(np.float32)
-        
+
         # Ensure normalized even if model doesn't do it
         if self._normalize:
             embeddings = _normalize_l2(embeddings)
-        
+
         return embeddings
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
     """
     Ollama embedding provider for local embedding models.
-    
+
     Uses Ollama's embeddings API endpoint. Supports any embedding model
     available in Ollama (e.g., nomic-embed-text, mxbai-embed-large).
     """
-    
+
     DEFAULT_MODEL = "nomic-embed-text"
-    
+
     def __init__(
         self,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
-        dimension: Optional[int] = None
+        dimension: Optional[int] = None,
     ) -> None:
         """Initialize the Ollama embedding provider.
 
@@ -423,31 +427,34 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             dimension: Expected embedding dimension (auto-detected if not specified).
         """
         self._model = model or os.getenv("OLLAMA_EMBED_MODEL", self.DEFAULT_MODEL)
-        self._base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+        self._base_url = (
+            base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        ).rstrip("/")
         self._dimension = dimension
-        
+
         # Auto-detect dimension by embedding a test string
         if self._dimension is None:
             self._dimension = self._detect_dimension()
-        
+
         logger.info(f"Ollama embeddings: model={self._model}, dimension={self._dimension}")
-    
+
     def _detect_dimension(self) -> int:
         """Detect embedding dimension by running a test embedding request.
 
         Returns:
             The detected embedding vector length, or a conservative default on failure.
         """
-        import httpx
         import time
-        
+
+        import httpx
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = httpx.post(
                     f"{self._base_url}/api/embeddings",
                     json={"model": self._model, "prompt": "test"},
-                    timeout=30.0
+                    timeout=30.0,
                 )
                 response.raise_for_status()
                 embedding = response.json()["embedding"]
@@ -456,27 +463,28 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                 return detected_dim
             except httpx.TimeoutException:
                 logger.warning(
-                    "Timeout detecting Ollama dimension (attempt %d/%d)",
-                    attempt + 1, max_retries
+                    "Timeout detecting Ollama dimension (attempt %d/%d)", attempt + 1, max_retries
                 )
                 if attempt < max_retries - 1:
                     time.sleep(1 * (attempt + 1))  # Exponential backoff
             except Exception as e:
                 logger.warning(
                     "Could not detect Ollama embedding dimension (attempt %d/%d): %s",
-                    attempt + 1, max_retries, e
+                    attempt + 1,
+                    max_retries,
+                    e,
                 )
                 if attempt < max_retries - 1:
                     time.sleep(1 * (attempt + 1))
-        
+
         # Default dimension for nomic-embed-text after all retries fail
         logger.warning(
             "Failed to detect dimension after %d attempts. Using default: 768. "
             "This may cause index dimension mismatches if your model differs.",
-            max_retries
+            max_retries,
         )
         return 768
-    
+
     @property
     def dimension(self) -> int:
         """Return the embedding dimension produced by the Ollama model.
@@ -485,7 +493,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             The embedding vector dimensionality.
         """
         return self._dimension
-    
+
     @property
     def provider_name(self) -> str:
         """Return a descriptive provider name including the model identifier.
@@ -494,7 +502,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             A descriptive provider name including the model identifier.
         """
         return f"OllamaEmbedding({self._model})"
-    
+
     def embed_text(self, text: str) -> np.ndarray:
         """Generate an embedding using Ollama's embeddings endpoint.
 
@@ -503,31 +511,34 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
         Returns:
             L2-normalized embedding vector.
-            
+
         Raises:
             httpx.HTTPError: If the request fails after retries.
         """
-        import httpx
         import time
-        
+
+        import httpx
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = httpx.post(
                     f"{self._base_url}/api/embeddings",
                     json={"model": self._model, "prompt": text},
-                    timeout=60.0  # Increased timeout for larger inputs
+                    timeout=60.0,  # Increased timeout for larger inputs
                 )
                 response.raise_for_status()
-                
+
                 embedding = np.array(response.json()["embedding"], dtype=np.float32)
                 return _normalize_l2(embedding)
-            except httpx.TimeoutException as e:
+            except httpx.TimeoutException:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4 seconds
+                    wait_time = 2**attempt  # Exponential backoff: 1, 2, 4 seconds
                     logger.warning(
                         "Ollama embed timeout (attempt %d/%d), retrying in %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
@@ -535,15 +546,18 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                     raise
             except httpx.HTTPError as e:
                 if attempt < max_retries - 1 and e.response.status_code >= 500:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(
                         "Ollama server error (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1, max_retries, wait_time, e
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
                     )
                     time.sleep(wait_time)
                 else:
                     raise
-    
+
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch by calling Ollama per item.
 
@@ -555,7 +569,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         """
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
-        
+
         # Ollama doesn't have batch endpoint, so embed one by one
         embeddings = [self.embed_text(text) for text in texts]
         return np.vstack(embeddings)
@@ -564,12 +578,12 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 class MockEmbeddingProvider(EmbeddingProvider):
     """
     Mock embedding provider for testing without external dependencies.
-    
+
     Generates deterministic random embeddings based on text hash.
     WARNING: These embeddings have NO semantic meaning - similar texts
     will NOT have similar embeddings. Use only for testing data flow.
     """
-    
+
     def __init__(self, dimension: int = 1024) -> None:
         """Initialize the mock embedding provider.
 
@@ -577,7 +591,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
             dimension: Embedding dimension (default: 1024 to match BGE-M3).
         """
         self._dimension = dimension
-    
+
     @property
     def dimension(self) -> int:
         """Return the embedding dimension produced by this mock provider.
@@ -586,7 +600,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
             The embedding vector dimensionality.
         """
         return self._dimension
-    
+
     @property
     def is_mock(self) -> bool:
         """Return True for the mock provider.
@@ -595,7 +609,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
             True.
         """
         return True
-    
+
     @property
     def provider_name(self) -> str:
         """Return a stable provider name for logging/debugging.
@@ -604,7 +618,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
             A stable provider name.
         """
         return "MockEmbedding"
-    
+
     def embed_text(self, text: str) -> np.ndarray:
         """Generate a deterministic mock embedding.
 
@@ -619,7 +633,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
         embedding = np.random.randn(self._dimension).astype(np.float32)
         # Normalize to unit length
         return _normalize_l2(embedding)
-    
+
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate mock embeddings for a batch.
 
@@ -667,29 +681,22 @@ def get_embedding_provider(
     """
     # Get provider from environment if not explicitly set
     provider = os.getenv("EMBEDDING_PROVIDER", provider)
-    
+
     if provider == "openai":
         if not api_key:
             raise ValueError("API key required for OpenAI provider")
         return OpenAIEmbeddingProvider(
-            api_key=api_key,
-            model=model or "text-embedding-3-small",
-            dimension=dimension or 1536
+            api_key=api_key, model=model or "text-embedding-3-small", dimension=dimension or 1536
         )
     elif provider == "local":
         return LocalEmbeddingProvider(
             model_name=model,  # Will use default if None
             device=device,
-            normalize=True
+            normalize=True,
         )
     elif provider == "ollama":
-        return OllamaEmbeddingProvider(
-            model=model,
-            base_url=base_url,
-            dimension=dimension
-        )
+        return OllamaEmbeddingProvider(model=model, base_url=base_url, dimension=dimension)
     elif provider == "mock":
         return MockEmbeddingProvider(dimension=dimension or 1024)
     else:
         raise ValueError(f"Unknown provider: {provider}")
-

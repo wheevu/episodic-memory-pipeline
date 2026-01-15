@@ -3,15 +3,16 @@ Episode extractor.
 
 Extracts structured episodic memory from raw text using LLM.
 """
+
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
-from dataclasses import dataclass
 
 from ..llm import LLMProvider
 from ..models import Episode, MemoryType
 from ..prompts import PromptTemplates
-from ..utils import as_list, as_str, as_float, sanitize_topics, sanitize_entities
+from ..utils import as_float, as_str, sanitize_entities, sanitize_topics
 
 
 @dataclass
@@ -23,6 +24,7 @@ class ExtractionResult:
         extraction_confidence: Heuristic confidence score for the extraction.
         raw_llm_response: Raw LLM response text (or error string on fallback).
     """
+
     episode: Episode
     extraction_confidence: float
     raw_llm_response: str
@@ -31,7 +33,7 @@ class ExtractionResult:
 class EpisodeExtractor:
     """
     Extracts structured episodic memories from text.
-    
+
     Uses LLM to:
     - Clean and normalize content
     - Identify memory type
@@ -39,7 +41,7 @@ class EpisodeExtractor:
     - Determine importance
     - Infer temporal offsets ("yesterday", "last week")
     """
-    
+
     # Time offset mappings
     TIME_OFFSETS: dict[str, timedelta] = {
         "none": timedelta(0),
@@ -49,7 +51,7 @@ class EpisodeExtractor:
         "few_days_ago": timedelta(days=-3),
         "earlier_today": timedelta(hours=-6),
     }
-    
+
     def __init__(self, llm: LLMProvider) -> None:
         """Initialize the episode extractor.
 
@@ -57,7 +59,7 @@ class EpisodeExtractor:
             llm: LLM provider used for structured extraction.
         """
         self.llm = llm
-    
+
     def extract(
         self,
         text: str,
@@ -79,35 +81,36 @@ class EpisodeExtractor:
             An `ExtractionResult` containing the extracted episode and metadata.
         """
         timestamp = timestamp or datetime.utcnow()
-        
+
         prompt = PromptTemplates.EPISODE_EXTRACTION.format(
-            text=text,
-            timestamp=timestamp.isoformat()
+            text=text, timestamp=timestamp.isoformat()
         )
-        
+
         try:
             response = self.llm.complete(prompt)
             result = json.loads(response)
-            
+
             # Parse memory type (sanitize string value)
-            memory_type_str = as_str(result.get("memory_type"), default=memory_type_hint or "episodic")
+            memory_type_str = as_str(
+                result.get("memory_type"), default=memory_type_hint or "episodic"
+            )
             try:
                 memory_type = MemoryType(memory_type_str)
             except ValueError:
                 memory_type = MemoryType.EPISODIC
-            
+
             # Calculate occurred_at from offset
             offset_str = as_str(result.get("occurred_at_offset"), default="none")
             offset = self.TIME_OFFSETS.get(offset_str, timedelta(0))
             # Offsets are negative for past references (e.g., "yesterday" -> -1 day).
             occurred_at = timestamp + offset
-            
+
             # Sanitize all LLM output fields
             topics = sanitize_topics(result.get("topics"))
             entities = sanitize_entities(result.get("entities"))
             importance = as_float(result.get("importance"), default=0.5)
             content = as_str(result.get("content"), default=text) or text
-            
+
             # Create episode with sanitized values
             episode = Episode(
                 raw_input=text,
@@ -121,19 +124,21 @@ class EpisodeExtractor:
                 source=source,
                 session_id=session_id,
             )
-            
+
             return ExtractionResult(
                 episode=episode,
                 extraction_confidence=0.9,  # LLM extraction assumed reliable
-                raw_llm_response=response
+                raw_llm_response=response,
             )
-            
+
         except (json.JSONDecodeError, KeyError) as e:
             # Fallback: create basic episode from raw text
             episode = Episode(
                 raw_input=text,
                 content=text,
-                memory_type=MemoryType(memory_type_hint) if memory_type_hint else MemoryType.EPISODIC,
+                memory_type=MemoryType(memory_type_hint)
+                if memory_type_hint
+                else MemoryType.EPISODIC,
                 topics=self._extract_basic_topics(text),
                 entities=[],
                 importance=0.5,
@@ -142,13 +147,11 @@ class EpisodeExtractor:
                 source=source,
                 session_id=session_id,
             )
-            
+
             return ExtractionResult(
-                episode=episode,
-                extraction_confidence=0.3,
-                raw_llm_response=str(e)
+                episode=episode, extraction_confidence=0.3, raw_llm_response=str(e)
             )
-    
+
     def _extract_basic_topics(self, text: str) -> list[str]:
         """Extract basic topics using simple keyword heuristics (fallback path).
 
@@ -160,7 +163,7 @@ class EpisodeExtractor:
         """
         topics: list[str] = []
         text_lower = text.lower()
-        
+
         # Common topic keywords
         topic_keywords = {
             "work": ["work", "job", "office", "meeting", "project", "deadline"],
@@ -172,18 +175,15 @@ class EpisodeExtractor:
             "finance": ["money", "budget", "save", "invest", "cost", "pay"],
             "social": ["friend", "party", "dinner", "meet", "talk"],
         }
-        
+
         for topic, keywords in topic_keywords.items():
             if any(kw in text_lower for kw in keywords):
                 topics.append(topic)
-        
+
         return topics[:3]  # Limit to top 3
-    
+
     def extract_batch(
-        self,
-        texts: list[str],
-        timestamp: Optional[datetime] = None,
-        source: str = "chat"
+        self, texts: list[str], timestamp: Optional[datetime] = None, source: str = "chat"
     ) -> list[ExtractionResult]:
         """Extract episodes from multiple texts.
 
@@ -196,8 +196,4 @@ class EpisodeExtractor:
             A list of `ExtractionResult` aligned to the input order.
         """
         timestamp = timestamp or datetime.utcnow()
-        return [
-            self.extract(text, timestamp=timestamp, source=source)
-            for text in texts
-        ]
-
+        return [self.extract(text, timestamp=timestamp, source=source) for text in texts]

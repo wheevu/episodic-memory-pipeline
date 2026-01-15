@@ -3,16 +3,17 @@ Ingestion pipeline - the main entry point for processing new memories.
 
 Orchestrates: classification → extraction → embedding → storage
 """
+
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
-from dataclasses import dataclass
 
-from ..models import Episode
-from ..storage import Database, VectorStore
 from ..embeddings import EmbeddingProvider
 from ..llm import LLMProvider
-from .classifier import MemoryWorthinessClassifier, ClassificationResult
+from ..models import Episode
+from ..storage import Database, VectorStore
+from .classifier import ClassificationResult, MemoryWorthinessClassifier
 from .extractor import EpisodeExtractor, ExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -29,12 +30,13 @@ class IngestionResult:
         extraction: Extraction stage output, if run.
         reason: Human-readable reason for the outcome (stored/skipped).
     """
+
     success: bool
     episode: Optional[Episode] = None
     classification: Optional[ClassificationResult] = None
     extraction: Optional[ExtractionResult] = None
     reason: str = ""
-    
+
     @classmethod
     def skipped(
         cls,
@@ -50,12 +52,8 @@ class IngestionResult:
         Returns:
             An `IngestionResult` with `success=False`.
         """
-        return cls(
-            success=False,
-            classification=classification,
-            reason=reason
-        )
-    
+        return cls(success=False, classification=classification, reason=reason)
+
     @classmethod
     def stored(
         cls,
@@ -78,26 +76,26 @@ class IngestionResult:
             episode=episode,
             classification=classification,
             extraction=extraction,
-            reason="Stored successfully"
+            reason="Stored successfully",
         )
 
 
 class IngestionPipeline:
     """
     Main ingestion pipeline for processing raw input into stored memories.
-    
+
     Pipeline stages:
     1. Classification: Is this worth remembering?
     2. Extraction: Extract structured memory
     3. Embedding: Generate vector embedding
     4. Storage: Persist to database and vector store
-    
+
     Design notes:
     - Each stage can short-circuit (e.g., not memory-worthy → skip rest)
     - Confidence scores propagate through the pipeline
     - Sessions allow grouping related inputs
     """
-    
+
     def __init__(
         self,
         database: Database,
@@ -121,7 +119,7 @@ class IngestionPipeline:
         self.classifier = MemoryWorthinessClassifier(llm, threshold=worthiness_threshold)
         self.extractor = EpisodeExtractor(llm)
         self.worthiness_threshold = worthiness_threshold
-    
+
     def ingest(
         self,
         text: str,
@@ -147,56 +145,49 @@ class IngestionPipeline:
             An `IngestionResult` describing whether storage occurred and why.
         """
         timestamp = timestamp or datetime.utcnow()
-        
+
         # Input validation
         MAX_TEXT_LENGTH = 50_000
         if len(text) > MAX_TEXT_LENGTH:
             logger.warning(
-                "Rejected input: text length %d exceeds maximum %d",
-                len(text),
-                MAX_TEXT_LENGTH
+                "Rejected input: text length %d exceeds maximum %d", len(text), MAX_TEXT_LENGTH
             )
             return IngestionResult.skipped(
                 f"Input too long ({len(text)} chars, max {MAX_TEXT_LENGTH})"
             )
-        
+
         if not text or not text.strip():
             logger.warning("Rejected input: empty or whitespace-only text")
             return IngestionResult.skipped("Empty input")
-        
+
         logger.debug("Ingesting text: source=%s, session=%s, force=%s", source, session_id, force)
-        
+
         # Stage 1: Classification (unless forced)
         if not force:
-            classification = self.classifier.classify(
-                text,
-                context=context,
-                use_llm=True
-            )
-            
+            classification = self.classifier.classify(text, context=context, use_llm=True)
+
             logger.debug(
                 "Classification: worthy=%s, confidence=%.2f, type=%s",
                 classification.is_memory_worthy,
                 classification.confidence,
-                classification.memory_type
+                classification.memory_type,
             )
-            
+
             if not classification.is_memory_worthy:
                 logger.info("Skipped ingestion: %s", classification.reason)
                 return IngestionResult.skipped(
-                    f"Not memory-worthy: {classification.reason}",
-                    classification
+                    f"Not memory-worthy: {classification.reason}", classification
                 )
-            
+
             if classification.confidence < self.worthiness_threshold:
                 logger.info(
                     "Skipped ingestion: confidence %.2f below threshold %.2f",
                     classification.confidence,
-                    self.worthiness_threshold
+                    self.worthiness_threshold,
                 )
                 return IngestionResult.skipped(
                     f"Below confidence threshold ({classification.confidence:.2f} < {self.worthiness_threshold})",
-                    classification
+                    classification,
                 )
         else:
             logger.debug("Bypassing classification (forced)")
@@ -204,9 +195,9 @@ class IngestionPipeline:
                 is_memory_worthy=True,
                 confidence=1.0,
                 reason="Forced ingestion",
-                memory_type="episodic"
+                memory_type="episodic",
             )
-        
+
         # Stage 2: Extraction
         extraction = self.extractor.extract(
             text,
@@ -215,46 +206,36 @@ class IngestionPipeline:
             source=source,
             session_id=session_id,
         )
-        
+
         episode = extraction.episode
-        
+
         # Update confidence from classification and extraction
-        episode.confidence = min(
-            classification.confidence,
-            extraction.extraction_confidence
-        )
-        
+        episode.confidence = min(classification.confidence, extraction.extraction_confidence)
+
         logger.debug(
             "Extracted episode: id=%s, type=%s, topics=%s",
             episode.id[:8],
             episode.memory_type,
-            episode.topics
+            episode.topics,
         )
-        
+
         # Stage 3: Embedding
         embedding_text = episode.to_embedding_text()
         embedding = self.embedding_provider.embed_text(embedding_text)
-        
+
         # Stage 4: Storage
         # Save episode first (embedding_id set after vector insert)
         self.database.save_episode(episode)
         logger.debug("Saved episode to database: %s", episode.id[:8])
-        
+
         try:
-            embedding_id = self.vector_store.add(
-                "episodes",
-                episode.id,
-                embedding
-            )
+            embedding_id = self.vector_store.add("episodes", episode.id, embedding)
             logger.debug("Added episode to vector store: embedding_id=%d", embedding_id)
         except Exception as exc:
             logger.error("Vector store error for episode %s: %s", episode.id[:8], exc)
             self.database.set_episode_active(episode.id, False)
-            return IngestionResult.skipped(
-                f"Vector store error: {exc}",
-                classification
-            )
-        
+            return IngestionResult.skipped(f"Vector store error: {exc}", classification)
+
         # Update episode with embedding ID
         episode.embedding_id = embedding_id
         try:
@@ -262,25 +243,22 @@ class IngestionPipeline:
         except Exception as exc:
             logger.error("Embedding update error for episode %s: %s", episode.id[:8], exc)
             self.database.set_episode_active(episode.id, False)
-            return IngestionResult.skipped(
-                f"Embedding update error: {exc}",
-                classification
-            )
-        
+            return IngestionResult.skipped(f"Embedding update error: {exc}", classification)
+
         # Persist vector store
         if persist_vectors:
             self.vector_store.save()
             logger.debug("Persisted vector store")
-        
+
         logger.info(
             "Successfully ingested episode: id=%s, type=%s, importance=%.2f",
             episode.id[:8],
             episode.memory_type,
-            episode.importance
+            episode.importance,
         )
-        
+
         return IngestionResult.stored(episode, classification, extraction)
-    
+
     def ingest_batch(
         self,
         texts: list[str],
@@ -324,7 +302,7 @@ class IngestionPipeline:
             self.vector_store.save()
 
         return results
-    
+
     def get_statistics(self) -> dict:
         """Return basic database and vector-store statistics.
 
@@ -337,4 +315,3 @@ class IngestionPipeline:
             "database": db_stats,
             "vector_store": vec_stats,
         }
-

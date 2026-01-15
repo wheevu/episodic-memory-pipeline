@@ -3,13 +3,14 @@ Evaluation module for the episodic memory pipeline.
 
 Provides metrics and evaluation runners for assessing memory system quality.
 """
+
 from .metrics import (
-    RetrievalPrecisionMetric,
-    FactConflictRateMetric,
     ConsolidationCompressionMetric,
     EvaluationMetrics,
+    FactConflictRateMetric,
+    RetrievalPrecisionMetric,
 )
-from .runner import EvaluationRunner, EvaluationScenario, DiaryScenario
+from .runner import DiaryScenario, EvaluationRunner, EvaluationScenario
 
 __all__ = [
     "RetrievalPrecisionMetric",
@@ -20,4 +21,3 @@ __all__ = [
     "EvaluationScenario",
     "DiaryScenario",
 ]
-

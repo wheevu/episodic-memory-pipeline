@@ -1,7 +1,7 @@
 """
 LLM Output Sanitization Utilities.
 
-This module provides functions to safely extract and normalize values from 
+This module provides functions to safely extract and normalize values from
 LLM-generated JSON responses. LLM output is treated as UNTRUSTED INPUT because:
 
 1. LLMs may return `null` instead of empty arrays/strings
@@ -14,27 +14,28 @@ schema-safe values that can be passed to Pydantic models without validation erro
 
 Usage:
     from src.utils import as_list, as_str, as_float, as_bool, as_dict
-    
+
     result = json.loads(llm_response)
-    
+
     topics = as_list(result.get("topics"))  # [] if null/missing/wrong type
     content = as_str(result.get("content"), default="No content")
     importance = as_float(result.get("importance"), default=0.5)
     is_worthy = as_bool(result.get("is_memory_worthy"), default=False)
 """
-from typing import Any, Optional
+
+from typing import Any
 
 
 def as_list(value: Any) -> list:
     """
     Safely convert a value to a list.
-    
+
     Args:
         value: Any value from LLM response
-        
+
     Returns:
         The value if it's a list, otherwise an empty list.
-        
+
     Examples:
         >>> as_list(["a", "b"])
         ['a', 'b']
@@ -53,15 +54,15 @@ def as_list(value: Any) -> list:
 def as_str(value: Any, default: str = "") -> str:
     """
     Safely convert a value to a string.
-    
+
     Args:
         value: Any value from LLM response
         default: Default string if value is None or not a string
-        
+
     Returns:
         The value if it's a string, otherwise the default.
         Does NOT convert non-strings to strings (e.g., numbers stay as default).
-        
+
     Examples:
         >>> as_str("hello")
         'hello'
@@ -82,14 +83,14 @@ def as_str(value: Any, default: str = "") -> str:
 def as_float(value: Any, default: float = 0.0) -> float:
     """
     Safely convert a value to a float.
-    
+
     Args:
         value: Any value from LLM response
         default: Default float if conversion fails
-        
+
     Returns:
         The value as a float, or default if conversion fails.
-        
+
     Examples:
         >>> as_float(0.8)
         0.8
@@ -113,19 +114,19 @@ def as_float(value: Any, default: float = 0.0) -> float:
 def as_bool(value: Any, default: bool = False) -> bool:
     """
     Safely convert a value to a boolean.
-    
+
     Args:
         value: Any value from LLM response
         default: Default boolean if value cannot be converted
-        
+
     Returns:
         The value as a boolean, or default if conversion fails.
-        
+
     Handles:
         - Actual booleans: True, False
         - String booleans: "true", "false", "True", "False"
         - Numeric: 1, 0 (treated as True, False)
-        
+
     Examples:
         >>> as_bool(True)
         True
@@ -155,13 +156,13 @@ def as_bool(value: Any, default: bool = False) -> bool:
 def as_dict(value: Any) -> dict:
     """
     Safely convert a value to a dictionary.
-    
+
     Args:
         value: Any value from LLM response
-        
+
     Returns:
         The value if it's a dict, otherwise an empty dict.
-        
+
     Examples:
         >>> as_dict({"key": "value"})
         {'key': 'value'}
@@ -175,21 +176,18 @@ def as_dict(value: Any) -> dict:
     return {}
 
 
-def sanitize_llm_response(
-    response: dict,
-    schema: dict[str, tuple[type, Any]]
-) -> dict:
+def sanitize_llm_response(response: dict, schema: dict[str, tuple[type, Any]]) -> dict:
     """
     Sanitize an entire LLM response dictionary according to a schema.
-    
+
     Args:
         response: The parsed JSON response from the LLM
         schema: A dictionary mapping field names to (type, default) tuples
                 Supported types: list, str, float, bool, dict
-                
+
     Returns:
         A sanitized dictionary with all fields conforming to their expected types.
-        
+
     Example:
         >>> schema = {
         ...     "topics": (list, []),
@@ -202,9 +200,9 @@ def sanitize_llm_response(
     """
     if not isinstance(response, dict):
         response = {}
-    
+
     result = {}
-    
+
     type_handlers = {
         list: as_list,
         str: lambda v, d: as_str(v, d),
@@ -212,11 +210,11 @@ def sanitize_llm_response(
         bool: lambda v, d: as_bool(v, d),
         dict: lambda v, d: as_dict(v),
     }
-    
+
     for field, (field_type, default) in schema.items():
         value = response.get(field)
         handler = type_handlers.get(field_type)
-        
+
         if handler:
             if field_type in (str, float, bool):
                 result[field] = handler(value, default)
@@ -225,22 +223,22 @@ def sanitize_llm_response(
         else:
             # Unknown type, just use default if None
             result[field] = value if value is not None else default
-    
+
     return result
 
 
 def safe_get_nested(data: dict, *keys: str, default: Any = None) -> Any:
     """
     Safely traverse nested dictionary keys.
-    
+
     Args:
         data: The dictionary to traverse
         *keys: Variable number of keys to traverse
         default: Default value if any key is missing
-        
+
     Returns:
         The value at the nested path, or default if not found.
-        
+
     Example:
         >>> data = {"a": {"b": {"c": 1}}}
         >>> safe_get_nested(data, "a", "b", "c")
@@ -266,16 +264,16 @@ def sanitize_string_list(
 ) -> list[str]:
     """
     Sanitize a list of strings (topics, entities, etc.) from LLM output.
-    
+
     Args:
         items: List of strings from LLM response
         max_items: Maximum number of items to keep
         max_length: Maximum length per item (chars)
         strip_chars: Characters to strip from each item
-        
+
     Returns:
         A sanitized list of strings, filtered and truncated.
-        
+
     Examples:
         >>> sanitize_string_list(["topic1", "topic2", "  topic3  "])
         ['topic1', 'topic2', 'topic3']
@@ -286,43 +284,43 @@ def sanitize_string_list(
     """
     if not isinstance(items, list):
         return []
-    
+
     result = []
     for item in items:
         # Only keep strings
         if not isinstance(item, str):
             continue
-        
+
         # Strip and filter empty
         cleaned = item.strip(strip_chars)
         if not cleaned:
             continue
-        
+
         # Truncate if too long
         if len(cleaned) > max_length:
             cleaned = cleaned[:max_length]
-        
+
         result.append(cleaned)
-        
+
         # Stop if we've reached the limit
         if len(result) >= max_items:
             break
-    
+
     return result
 
 
 def sanitize_topics(topics: Any, max_topics: int = 20, max_length: int = 100) -> list[str]:
     """
     Sanitize topics from LLM output.
-    
+
     Args:
         topics: Topics value from LLM response
         max_topics: Maximum number of topics to keep
         max_length: Maximum length per topic (chars)
-        
+
     Returns:
         A sanitized list of topic strings.
-        
+
     Examples:
         >>> sanitize_topics(["work", "learning", "  health  "])
         ['work', 'learning', 'health']
@@ -338,15 +336,15 @@ def sanitize_topics(topics: Any, max_topics: int = 20, max_length: int = 100) ->
 def sanitize_entities(entities: Any, max_entities: int = 50, max_length: int = 100) -> list[str]:
     """
     Sanitize entities from LLM output.
-    
+
     Args:
         entities: Entities value from LLM response
         max_entities: Maximum number of entities to keep
         max_length: Maximum length per entity (chars)
-        
+
     Returns:
         A sanitized list of entity strings.
-        
+
     Examples:
         >>> sanitize_entities(["John", "OpenAI", "  Python  "])
         ['John', 'OpenAI', 'Python']
@@ -357,4 +355,3 @@ def sanitize_entities(entities: Any, max_entities: int = 50, max_length: int = 1
     """
     items = as_list(entities)
     return sanitize_string_list(items, max_items=max_entities, max_length=max_length)
-

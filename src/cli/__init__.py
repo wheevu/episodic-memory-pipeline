@@ -9,14 +9,16 @@ Usage:
     episodic-memory query "What am I learning?"
     episodic-memory doctor
 """
-import click
+
 from typing import Optional
 
+import click
+
 from config import config
-from src.bootstrap import get_components, PipelineComponents
+from src.bootstrap import PipelineComponents, get_components
 
 # Import command modules
-from .commands import ingest, query, eval_cmd, doctor, demo
+from .commands import demo, doctor, eval_cmd, ingest, query
 
 # Global cache for components
 _components: Optional[PipelineComponents] = None
@@ -25,7 +27,7 @@ _components_mock_state: Optional[bool] = None
 
 def reset_components() -> None:
     """Reset the cached components. Useful for testing or when switching providers.
-    
+
     Returns:
         None.
     """
@@ -37,28 +39,28 @@ def reset_components() -> None:
 def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
     """
     Get or create pipeline components via bootstrap.
-    
+
     Args:
         use_mock: Force mock providers for testing
-        
+
     Returns:
         PipelineComponents with all initialized components
     """
     global _components, _components_mock_state
-    
+
     # Invalidate cache if mock state changed
     if _components is not None and _components_mock_state != use_mock:
         _components = None
-    
+
     if _components is None:
         _components = get_components(config=config, force_mock=use_mock, verbose=True)
         _components_mock_state = use_mock
-    
+
     return _components
 
 
 @click.group()
-@click.option('--mock', is_flag=True, help='Use mock providers (no API calls)')
+@click.option("--mock", is_flag=True, help="Use mock providers (no API calls)")
 @click.pass_context
 def app(ctx: click.Context, mock: bool) -> None:
     """Episodic Memory Pipeline CLI entrypoint.
@@ -71,7 +73,7 @@ def app(ctx: click.Context, mock: bool) -> None:
         None.
     """
     ctx.ensure_object(dict)
-    ctx.obj['use_mock'] = mock
+    ctx.obj["use_mock"] = mock
 
 
 # Register commands
@@ -80,7 +82,7 @@ app.add_command(query.query)
 app.add_command(query.recall)
 app.add_command(query.consolidate)
 app.add_command(query.stats)
-app.add_command(eval_cmd.eval_cmd, name='eval')
+app.add_command(eval_cmd.eval_cmd, name="eval")
 app.add_command(eval_cmd.eval_run)
 app.add_command(eval_cmd.eval_compare)
 app.add_command(eval_cmd.eval_list)
@@ -94,4 +96,3 @@ cli = app
 
 if __name__ == "__main__":
     app()
-

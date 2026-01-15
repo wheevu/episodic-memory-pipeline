@@ -3,15 +3,16 @@ LLM provider abstraction.
 
 Unified interface for LLM completions supporting OpenAI, Ollama, and mock providers.
 """
-from abc import ABC, abstractmethod
-from typing import Any, Optional
+
 import json
 import re
+from abc import ABC, abstractmethod
+from typing import Any, Optional
 
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
-    
+
     @property
     def is_mock(self) -> bool:
         """Return True if this is a mock provider.
@@ -20,7 +21,7 @@ class LLMProvider(ABC):
             True if the provider is a mock; otherwise False.
         """
         return False
-    
+
     @abstractmethod
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
         """Generate a completion for the given prompt.
@@ -33,7 +34,7 @@ class LLMProvider(ABC):
             The model-generated completion text.
         """
         pass
-    
+
     def complete_json(self, prompt: str, temperature: float = 0.1) -> dict[str, Any]:
         """Generate a completion and parse it as JSON.
 
@@ -50,7 +51,7 @@ class LLMProvider(ABC):
         response = self.complete(prompt, temperature)
         # Try to extract JSON from response
         return self._extract_json(response)
-    
+
     def _extract_json(self, text: str) -> dict[str, Any]:
         """Extract a JSON object from text that may include extra formatting.
 
@@ -64,45 +65,46 @@ class LLMProvider(ABC):
             ValueError: If JSON cannot be extracted/parsed from the text.
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         # Try direct parse first
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-        
+
         # Try to find JSON block in markdown code fences
         # Pattern: ```json {...} ``` or ``` {...} ```
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
             except json.JSONDecodeError as e:
                 logger.debug("Failed to parse JSON from markdown block: %s", e)
-        
+
         # Try to find the first complete JSON object (handling nested braces)
         # This is more robust than the simple pattern
         brace_count = 0
         start_idx = None
         for i, char in enumerate(text):
-            if char == '{':
+            if char == "{":
                 if start_idx is None:
                     start_idx = i
                 brace_count += 1
-            elif char == '}':
+            elif char == "}":
                 if start_idx is not None:
                     brace_count -= 1
                     if brace_count == 0:
                         # Found complete JSON object
-                        candidate = text[start_idx:i+1]
+                        candidate = text[start_idx : i + 1]
                         try:
                             return json.loads(candidate)
                         except json.JSONDecodeError:
                             # Reset and look for next object
                             start_idx = None
                             brace_count = 0
-        
+
         # If we still haven't found valid JSON, log the text for debugging
         logger.warning("Could not extract JSON from LLM response: %s", text[:200])
         raise ValueError(f"Could not extract JSON from response: {text[:200]}...")
@@ -110,13 +112,8 @@ class LLMProvider(ABC):
 
 class OpenAILLMProvider(LLMProvider):
     """OpenAI LLM provider."""
-    
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "gpt-4o-mini",
-        max_tokens: int = 1000
-    ) -> None:
+
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini", max_tokens: int = 1000) -> None:
         """Initialize the OpenAI provider.
 
         Args:
@@ -129,13 +126,13 @@ class OpenAILLMProvider(LLMProvider):
         """
         try:
             from openai import OpenAI
-        except ImportError:
-            raise ImportError("openai package required")
-        
+        except ImportError as err:
+            raise ImportError("openai package required") from err
+
         self._client = OpenAI(api_key=api_key)
         self._model = model
         self._max_tokens = max_tokens
-    
+
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
         """Generate a completion using the OpenAI chat completions API.
 
@@ -145,45 +142,56 @@ class OpenAILLMProvider(LLMProvider):
 
         Returns:
             The model-generated completion text.
-            
+
         Raises:
             openai.APIError: If the request fails after retries.
         """
         import time
+
         from openai import APIError, APITimeoutError, RateLimitError
-        
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 response = self._client.chat.completions.create(
                     model=self._model,
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant that outputs structured data. Always respond with valid JSON when requested."},
-                        {"role": "user", "content": prompt}
+                        {
+                            "role": "system",
+                            "content": "You are a helpful assistant that outputs structured data. Always respond with valid JSON when requested.",
+                        },
+                        {"role": "user", "content": prompt},
                     ],
                     temperature=temperature,
                     max_tokens=self._max_tokens,
-                    timeout=30.0
+                    timeout=30.0,
                 )
                 return response.choices[0].message.content
             except (APITimeoutError, APIError) as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "OpenAI API error (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1, max_retries, wait_time, e
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
                     )
                     time.sleep(wait_time)
                 else:
                     raise
-            except RateLimitError as e:
+            except RateLimitError:
                 if attempt < max_retries - 1:
                     wait_time = 5 * (attempt + 1)
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "OpenAI rate limit (attempt %d/%d), waiting %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
@@ -193,17 +201,17 @@ class OpenAILLMProvider(LLMProvider):
 class OllamaLLMProvider(LLMProvider):
     """
     Ollama LLM provider for local models.
-    
+
     Recommended model: qwen2.5:7b-instruct
     - Excellent instruction following
     - Strong JSON output compliance
     - Good balance of speed and quality for local inference
     - Multilingual support (useful for personal memory systems)
     """
-    
+
     # Default to Qwen for best local performance
     DEFAULT_MODEL = "qwen2.5:7b-instruct"
-    
+
     # System prompt optimized for structured extraction
     SYSTEM_PROMPT = """You are a memory extraction assistant. Your task is to analyze text and output structured JSON data.
 
@@ -232,7 +240,7 @@ CRITICAL RULES:
         self._base_url = base_url.rstrip("/")
         self._max_tokens = max_tokens
         self._default_temperature = temperature
-    
+
     @property
     def model_name(self) -> str:
         """Return the model name being used.
@@ -241,7 +249,7 @@ CRITICAL RULES:
             The configured Ollama model name.
         """
         return self._model
-    
+
     def complete(self, prompt: str, temperature: Optional[float] = None) -> str:
         """Generate a completion using the Ollama `/api/generate` endpoint.
 
@@ -257,11 +265,12 @@ CRITICAL RULES:
             ValueError: If the requested model is not found.
             httpx.HTTPError: For other HTTP-layer failures.
         """
-        import httpx
         import time
-        
+
+        import httpx
+
         temp = temperature if temperature is not None else self._default_temperature
-        
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -278,19 +287,22 @@ CRITICAL RULES:
                             # Qwen-specific optimizations
                             "top_p": 0.9,
                             "repeat_penalty": 1.1,
-                        }
+                        },
                     },
-                    timeout=120.0  # Longer timeout for local inference
+                    timeout=120.0,  # Longer timeout for local inference
                 )
                 response.raise_for_status()
                 return response.json()["response"]
             except httpx.ConnectError as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "Cannot connect to Ollama (attempt %d/%d), retrying in %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
@@ -298,13 +310,16 @@ CRITICAL RULES:
                         f"Could not connect to Ollama at {self._base_url} after {max_retries} attempts. "
                         f"Make sure Ollama is running: `ollama serve`"
                     ) from e
-            except httpx.TimeoutException as e:
+            except httpx.TimeoutException:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "Ollama timeout (attempt %d/%d), retrying in %ds",
-                        attempt + 1, max_retries, wait_time
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
                     )
                     time.sleep(wait_time)
                 else:
@@ -316,16 +331,20 @@ CRITICAL RULES:
                         f"Pull it first: `ollama pull {self._model}`"
                     ) from e
                 elif e.response.status_code >= 500 and attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "Ollama server error (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1, max_retries, wait_time, e
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
                     )
                     time.sleep(wait_time)
                 else:
                     raise
-    
+
     def is_available(self) -> bool:
         """Return True if the Ollama server is reachable.
 
@@ -333,12 +352,13 @@ CRITICAL RULES:
             True if the server responds successfully; otherwise False.
         """
         import httpx
+
         try:
             response = httpx.get(f"{self._base_url}/api/tags", timeout=5.0)
             return response.status_code == 200
         except Exception:
             return False
-    
+
     def list_models(self) -> list[str]:
         """List available models from the Ollama server.
 
@@ -346,6 +366,7 @@ CRITICAL RULES:
             A list of model names, or an empty list on failure.
         """
         import httpx
+
         try:
             response = httpx.get(f"{self._base_url}/api/tags", timeout=10.0)
             response.raise_for_status()
@@ -358,13 +379,13 @@ CRITICAL RULES:
 class MockLLMProvider(LLMProvider):
     """
     Mock LLM provider for testing without external dependencies.
-    
+
     Produces deterministic, reasonable responses based on prompt analysis.
     """
-    
+
     def __init__(self) -> None:
         """Initialize the mock provider."""
-    
+
     @property
     def is_mock(self) -> bool:
         """Return True for mock provider.
@@ -373,7 +394,7 @@ class MockLLMProvider(LLMProvider):
             True.
         """
         return True
-    
+
     def complete(self, prompt: str, temperature: float = 0.3) -> str:
         """Generate a deterministic mock completion based on prompt patterns.
 
@@ -385,85 +406,103 @@ class MockLLMProvider(LLMProvider):
             A JSON string matching the requested schema when recognizable.
         """
         prompt_lower = prompt.lower()
-        
+
         # Memory worthiness classification
         if "memory curator" in prompt_lower and "worth remembering" in prompt_lower:
             # Check for likely memory-worthy content
-            has_personal = any(p in prompt_lower for p in [
-                "i am", "i'm", "my name", "i want", "i like", "i prefer",
-                "i learned", "i work", "i live", "my goal"
-            ])
-            
-            return json.dumps({
-                "is_memory_worthy": has_personal,
-                "confidence": 0.8 if has_personal else 0.3,
-                "reason": "Contains personal information" if has_personal else "No personal information detected",
-                "memory_type": "episodic" if has_personal else "none"
-            })
-        
+            has_personal = any(
+                p in prompt_lower
+                for p in [
+                    "i am",
+                    "i'm",
+                    "my name",
+                    "i want",
+                    "i like",
+                    "i prefer",
+                    "i learned",
+                    "i work",
+                    "i live",
+                    "my goal",
+                ]
+            )
+
+            return json.dumps(
+                {
+                    "is_memory_worthy": has_personal,
+                    "confidence": 0.8 if has_personal else 0.3,
+                    "reason": "Contains personal information"
+                    if has_personal
+                    else "No personal information detected",
+                    "memory_type": "episodic" if has_personal else "none",
+                }
+            )
+
         # Episode extraction
         if "extracting structured episodic memory" in prompt_lower:
             # Extract some basic info from the prompt
-            return json.dumps({
-                "content": "User shared information (mock extraction)",
-                "memory_type": "episodic",
-                "topics": ["general"],
-                "entities": [],
-                "importance": 0.5,
-                "occurred_at_offset": "none"
-            })
-        
+            return json.dumps(
+                {
+                    "content": "User shared information (mock extraction)",
+                    "memory_type": "episodic",
+                    "topics": ["general"],
+                    "entities": [],
+                    "importance": 0.5,
+                    "occurred_at_offset": "none",
+                }
+            )
+
         # Summarization
         if "creating a narrative summary" in prompt_lower:
-            return json.dumps({
-                "summary": "Mock summary of recent events and memories.",
-                "key_events": ["Event 1", "Event 2"],
-                "themes": ["general theme"],
-                "notable_changes": []
-            })
-        
+            return json.dumps(
+                {
+                    "summary": "Mock summary of recent events and memories.",
+                    "key_events": ["Event 1", "Event 2"],
+                    "themes": ["general theme"],
+                    "notable_changes": [],
+                }
+            )
+
         # Fact extraction
         if "extracting stable facts" in prompt_lower:
-            return json.dumps({
-                "new_facts": [],
-                "updated_facts": [],
-                "contradicted_facts": []
-            })
-        
+            return json.dumps({"new_facts": [], "updated_facts": [], "contradicted_facts": []})
+
         # Query analysis
         if "analyze this query" in prompt_lower:
-            return json.dumps({
-                "query_type": "semantic",
-                "time_relevance": "all_time",
-                "time_filter": {"since": "", "until": ""},
-                "search_concepts": ["general"],
-                "topic_filters": [],
-                "reformulated_query": "general query"
-            })
-        
+            return json.dumps(
+                {
+                    "query_type": "semantic",
+                    "time_relevance": "all_time",
+                    "time_filter": {"since": "", "until": ""},
+                    "search_concepts": ["general"],
+                    "topic_filters": [],
+                    "reformulated_query": "general query",
+                }
+            )
+
         # Answer synthesis
         if "synthesizing an answer" in prompt_lower:
-            return json.dumps({
-                "answer": "Based on the available memories, here is a synthesized response.",
-                "confidence": 0.7,
-                "key_sources": ["memory source"],
-                "gaps": ["some information might be missing"]
-            })
-        
+            return json.dumps(
+                {
+                    "answer": "Based on the available memories, here is a synthesized response.",
+                    "confidence": 0.7,
+                    "key_sources": ["memory source"],
+                    "gaps": ["some information might be missing"],
+                }
+            )
+
         # Narrative synthesis
         if "reconstructing a narrative" in prompt_lower:
-            return json.dumps({
-                "narrative": "This is a mock narrative of the user's journey.",
-                "timeline": [{"date": "2024-01-01", "event": "Mock event"}],
-                "key_moments": ["Key moment"],
-                "current_status": "Status unknown"
-            })
-        
+            return json.dumps(
+                {
+                    "narrative": "This is a mock narrative of the user's journey.",
+                    "timeline": [{"date": "2024-01-01", "event": "Mock event"}],
+                    "key_moments": ["Key moment"],
+                    "current_status": "Status unknown",
+                }
+            )
+
         # Default: return a generic JSON response
-        return json.dumps({
-            "response": "Mock response",
-            "status": "success"
-        })
+        return json.dumps({"response": "Mock response", "status": "success"})
 
 
 def get_llm_provider(
@@ -491,18 +530,14 @@ def get_llm_provider(
     if provider == "openai":
         if not api_key:
             raise ValueError("API key required for OpenAI provider")
-        return OpenAILLMProvider(
-            api_key=api_key,
-            model=model or "gpt-4o-mini"
-        )
+        return OpenAILLMProvider(api_key=api_key, model=model or "gpt-4o-mini")
     elif provider == "ollama":
         return OllamaLLMProvider(
             model=model,  # Will use DEFAULT_MODEL if None
             base_url=base_url or "http://localhost:11434",
-            temperature=temperature or 0.2
+            temperature=temperature or 0.2,
         )
     elif provider == "mock":
         return MockLLMProvider()
     else:
         raise ValueError(f"Unknown provider: {provider}")
-

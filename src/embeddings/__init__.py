@@ -1,11 +1,12 @@
 """Embedding abstraction layer."""
+
 from .interface import (
     EmbeddingProvider,
-    get_embedding_provider,
     LocalEmbeddingProvider,
-    OpenAIEmbeddingProvider,
-    OllamaEmbeddingProvider,
     MockEmbeddingProvider,
+    OllamaEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+    get_embedding_provider,
 )
 
 __all__ = [
@@ -16,4 +17,3 @@ __all__ = [
     "OllamaEmbeddingProvider",
     "MockEmbeddingProvider",
 ]
-

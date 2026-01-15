@@ -32,8 +32,11 @@ For tests, we recommend:
 
 See ARCHITECTURE.md for more details on the initialization order constraint.
 """
-import pytest
+
+import importlib.util
 from typing import Any
+
+import pytest
 
 
 def pytest_addoption(parser: Any) -> None:
@@ -49,7 +52,7 @@ def pytest_addoption(parser: Any) -> None:
         "--run-slow",
         action="store_true",
         default=False,
-        help="Run slow tests that require model downloads"
+        help="Run slow tests that require model downloads",
     )
 
 
@@ -63,23 +66,21 @@ def pytest_configure(config: Any) -> None:
         None.
     """
     config.addinivalue_line(
-        "markers",
-        "slow: marks tests as slow (require model downloads, may take > 5s)"
+        "markers", "slow: marks tests as slow (require model downloads, may take > 5s)"
     )
     config.addinivalue_line(
-        "markers",
-        "requires_faiss: marks tests that require FAISS to be installed"
+        "markers", "requires_faiss: marks tests that require FAISS to be installed"
     )
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     """
     Modify test collection based on markers and options.
-    
+
     By default (without --run-slow), slow tests are skipped.
     With --run-slow, all tests run.
     With -m slow, only slow tests run.
-    
+
     Tests marked with requires_faiss are automatically skipped if faiss is not available.
 
     Args:
@@ -90,12 +91,8 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         None.
     """
     # Check for FAISS availability
-    try:
-        import faiss
-        has_faiss = True
-    except ImportError:
-        has_faiss = False
-    
+    has_faiss = importlib.util.find_spec("faiss") is not None
+
     # Handle slow tests
     if config.getoption("--run-slow"):
         # --run-slow given: don't skip slow tests
@@ -109,11 +106,10 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
             for item in items:
                 if "slow" in item.keywords:
                     item.add_marker(skip_slow)
-    
+
     # Handle FAISS-dependent tests
     if not has_faiss:
         skip_faiss = pytest.mark.skip(reason="FAISS not installed (pip install faiss-cpu)")
         for item in items:
             if "requires_faiss" in item.keywords:
                 item.add_marker(skip_faiss)
-

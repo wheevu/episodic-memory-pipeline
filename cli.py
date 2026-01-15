@@ -22,6 +22,7 @@ After installation (pip install -e .), you can also use:
     episodic-memory ingest "..."
     episodic-memory query "..."
 """
+
 from src.cli import app
 
 if __name__ == "__main__":
