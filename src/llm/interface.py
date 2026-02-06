@@ -197,6 +197,9 @@ class OpenAILLMProvider(LLMProvider):
                 else:
                     raise
 
+        # Safety net: should be unreachable, but guarantees a str return type
+        raise RuntimeError(f"OpenAI request failed after {max_retries} attempts")
+
 
 class OllamaLLMProvider(LLMProvider):
     """
@@ -344,6 +347,9 @@ CRITICAL RULES:
                     time.sleep(wait_time)
                 else:
                     raise
+
+        # Safety net: should be unreachable, but guarantees a str return type
+        raise RuntimeError(f"Ollama request failed after {max_retries} attempts")
 
     def is_available(self) -> bool:
         """Return True if the Ollama server is reachable.

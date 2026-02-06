@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -265,7 +265,7 @@ class EvaluationRunner:
         Returns:
             ScenarioResult with metrics
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         temp_dir = None
 
         try:
@@ -342,7 +342,7 @@ class EvaluationRunner:
                 fact_conflict=conflict_result,
                 compression=compression_result,
                 scenario_name=scenario.name,
-                timestamp=datetime.utcnow().isoformat(),
+                timestamp=datetime.now(timezone.utc).isoformat(),
                 episode_count=len(all_episodes),
                 fact_count=len(all_facts),
                 summary_count=len(all_summaries),
@@ -350,7 +350,7 @@ class EvaluationRunner:
                 using_mock_llm=getattr(self.llm, "is_mock", False),
             )
 
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             return ScenarioResult(
                 scenario_name=scenario.name,
@@ -360,7 +360,7 @@ class EvaluationRunner:
             )
 
         except Exception as e:
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             return ScenarioResult(
                 scenario_name=scenario.name,
                 success=False,

@@ -66,11 +66,16 @@ def ingest(ctx: click.Context, text: str, source: str, force: bool) -> None:
             )
         )
     else:
+        confidence_str = (
+            f"{result.classification_confidence:.2f}"
+            if result.classification_confidence is not None
+            else "N/A"
+        )
         console.print(
             Panel(
                 f"[yellow]⊘ Not stored[/yellow]\n\n"
                 f"[bold]Reason:[/bold] {result.reason}\n"
-                f"[bold]Confidence:[/bold] {result.classification_confidence:.2f if result.classification_confidence else 'N/A'}",
+                f"[bold]Confidence:[/bold] {confidence_str}",
                 title="Ingestion Result",
             )
         )

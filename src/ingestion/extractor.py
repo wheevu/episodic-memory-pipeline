@@ -6,7 +6,7 @@ Extracts structured episodic memory from raw text using LLM.
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ..llm import LLMProvider
@@ -80,7 +80,7 @@ class EpisodeExtractor:
         Returns:
             An `ExtractionResult` containing the extracted episode and metadata.
         """
-        timestamp = timestamp or datetime.utcnow()
+        timestamp = timestamp or datetime.now(timezone.utc)
 
         prompt = PromptTemplates.EPISODE_EXTRACTION.format(
             text=text, timestamp=timestamp.isoformat()
@@ -195,5 +195,5 @@ class EpisodeExtractor:
         Returns:
             A list of `ExtractionResult` aligned to the input order.
         """
-        timestamp = timestamp or datetime.utcnow()
+        timestamp = timestamp or datetime.now(timezone.utc)
         return [self.extract(text, timestamp=timestamp, source=source) for text in texts]

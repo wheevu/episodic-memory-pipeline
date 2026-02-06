@@ -110,29 +110,22 @@ class VectorStore:
                     self._id_maps[name] = []
 
                 if self._indices[name].d != self.dimension:
-                    logger.error(
-                        "Index '%s' dimension mismatch: expected %d but found %d. "
-                        "Resetting index (all vectors will be lost). "
-                        "To avoid this, ensure EMBEDDING_DIMENSION matches your model.",
-                        name,
-                        self.dimension,
-                        self._indices[name].d,
+                    raise ValueError(
+                        f"Index '{name}' dimension mismatch: expected {self.dimension} "
+                        f"but found {self._indices[name].d}. "
+                        f"This usually means the embedding model changed. "
+                        f"To fix, delete the index files at '{index_path}' and "
+                        f"'{id_map_path}' and re-index, or set EMBEDDING_DIMENSION "
+                        f"to match the existing index ({self._indices[name].d})."
                     )
-                    self._indices[name] = faiss.IndexFlatIP(self.dimension)
-                    self._id_maps[name] = []
-                    self._dirty.add(name)  # Mark as dirty to force persistence
 
                 if len(self._id_maps[name]) != self._indices[name].ntotal:
-                    logger.error(
-                        "Index '%s' id map mismatch: %d IDs but %d vectors. "
-                        "This indicates corruption. Resetting index (all vectors will be lost).",
-                        name,
-                        len(self._id_maps[name]),
-                        self._indices[name].ntotal,
+                    raise ValueError(
+                        f"Index '{name}' id map mismatch: {len(self._id_maps[name])} IDs "
+                        f"but {self._indices[name].ntotal} vectors. "
+                        f"This indicates index corruption. Delete the index files at "
+                        f"'{index_path}' and '{id_map_path}' and re-index."
                     )
-                    self._indices[name] = faiss.IndexFlatIP(self.dimension)
-                    self._id_maps[name] = []
-                    self._dirty.add(name)  # Mark as dirty to force persistence
             else:
                 # Create flat L2 index (exact search)
                 # Use inner-product on unit-normalized vectors to compute cosine similarity.
@@ -400,3 +393,19 @@ class VectorStore:
             }
             for name in self._indices
         }
+
+    def get_indexed_ids(self, index_name: str) -> set[str]:
+        """Return the set of record IDs currently indexed.
+
+        Args:
+            index_name: Index name ("episodes", "facts", or "summaries").
+
+        Returns:
+            A set of record IDs present in the index.
+
+        Raises:
+            ValueError: If `index_name` is not a known index.
+        """
+        if index_name not in self._id_maps:
+            raise ValueError(f"Unknown index: {index_name}")
+        return set(self._id_maps[index_name])

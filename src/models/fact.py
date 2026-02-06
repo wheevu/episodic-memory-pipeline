@@ -5,7 +5,7 @@ A fact is a distilled piece of knowledge extracted from one or more episodes.
 Facts are more durable than episodes and represent what we "know" vs what "happened".
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -74,7 +74,7 @@ class Fact(BaseModel):
         Returns:
             True if within validity window, active, and not superseded.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if self.valid_until and self.valid_until < now:
             return False
         if self.valid_from and self.valid_from > now:
@@ -145,8 +145,8 @@ class Fact(BaseModel):
 
         return cls(
             id=row["id"],
-            created_at=parse_datetime(row["created_at"]) or datetime.utcnow(),
-            updated_at=parse_datetime(row["updated_at"]) or datetime.utcnow(),
+            created_at=parse_datetime(row["created_at"]) or datetime.now(timezone.utc),
+            updated_at=parse_datetime(row["updated_at"]) or datetime.now(timezone.utc),
             content=row["content"],
             category=FactCategory(row["category"]),
             topic=row["topic"],

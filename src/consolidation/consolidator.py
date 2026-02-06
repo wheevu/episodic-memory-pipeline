@@ -10,7 +10,7 @@ This mimics how human memory consolidates during sleep.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -107,7 +107,7 @@ class ConsolidationPipeline:
             A `ConsolidationResult` with run statistics.
         """
         run_id = str(uuid4())
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         # Get unconsolidated episodes for this topic
         episodes = self.database.get_unconsolidated_episodes(topic=topic)
@@ -155,7 +155,14 @@ class ConsolidationPipeline:
                 embedding_id = self.vector_store.add("facts", fact.id, fact_embedding)
                 self.database.update_embedding_id("facts", fact.id, embedding_id)
             except Exception as exc:
-                logger.warning("Failed to index fact %s: %s", fact.id, exc)
+                # Deactivate the fact so it doesn't appear in DB-only queries
+                # while being invisible to vector search.
+                logger.warning(
+                    "Failed to index new fact %s; deactivating: %s",
+                    fact.id[:8],
+                    exc,
+                )
+                self.database.set_fact_active(fact.id, False)
 
         # Handle updated facts
         for old_id, new_fact in fact_result.updated_facts:
@@ -165,15 +172,23 @@ class ConsolidationPipeline:
                 embedding_id = self.vector_store.add("facts", new_fact.id, fact_embedding)
                 self.database.update_embedding_id("facts", new_fact.id, embedding_id)
             except Exception as exc:
-                logger.warning("Failed to index updated fact %s: %s", new_fact.id, exc)
+                # If vector indexing fails, do NOT supersede the old fact — the
+                # replacement would be unsearchable, effectively losing data.
+                # The new fact is saved to DB (for retry) but the old one stays active.
+                logger.warning(
+                    "Failed to index updated fact %s; old fact %s remains active: %s",
+                    new_fact.id,
+                    old_id[:8],
+                    exc,
+                )
+                continue
 
             self.database.supersede_fact(old_id, new_fact)
 
-        # Handle contradicted facts (mark as inactive)
-        for _fact_id in fact_result.contradicted_fact_ids:
-            # Placeholder: contradictions are detected, but the current storage model
-            # does not persist an explicit "contradicted" state beyond tracking IDs.
-            pass
+        # Handle contradicted facts (deactivate so they no longer appear in retrieval)
+        for fact_id in fact_result.contradicted_fact_ids:
+            self.database.set_fact_active(fact_id, False)
+            logger.info("Deactivated contradicted fact: %s", fact_id[:8])
 
         # Mark episodes as consolidated
         self.database.mark_episodes_consolidated([ep.id for ep in episodes])
@@ -181,7 +196,7 @@ class ConsolidationPipeline:
         # Save vector store
         self.vector_store.save()
 
-        duration = (datetime.utcnow() - start_time).total_seconds()
+        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
         return ConsolidationResult(
             run_id=run_id,
@@ -238,7 +253,7 @@ class ConsolidationPipeline:
         Returns:
             A `Summary` if there are recent episodes; otherwise None.
         """
-        week_ago = datetime.utcnow() - timedelta(days=7)
+        week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         episodes = self.database.get_episodes(topic=topic, since=week_ago, limit=100)
 
         if not episodes:
@@ -258,7 +273,7 @@ class ConsolidationPipeline:
         Returns:
             A higher-level `Summary` if enough weekly summaries exist; otherwise None.
         """
-        month_ago = datetime.utcnow() - timedelta(days=30)
+        month_ago = datetime.now(timezone.utc) - timedelta(days=30)
         weekly_summaries = self.database.get_summaries(topic=topic, level=1, since=month_ago)
 
         if len(weekly_summaries) < 2:

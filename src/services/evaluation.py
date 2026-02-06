@@ -8,7 +8,7 @@ Returns plain dataclasses - no Rich/Typer imports.
 import json
 import subprocess
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -100,7 +100,7 @@ def generate_run_id() -> str:
     Returns:
         A run identifier string suitable for directory naming.
     """
-    return datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
 class EvaluationService:
@@ -190,7 +190,7 @@ class EvaluationService:
             EvalRunResult with all metrics and metadata
         """
         run_id = generate_run_id()
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         git_commit = get_git_commit()
         config = self._get_config(scenario, precision_k)
 

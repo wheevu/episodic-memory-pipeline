@@ -175,12 +175,15 @@ class SemanticRetriever:
                 "episodes", query_embedding, k=k, threshold=self.threshold
             )
 
-        # Fetch full episodes
-        episodes = []
-        for record_id, _score in results:
-            episode = self.database.get_episode(record_id)
-            if episode:
-                episodes.append(episode)
+        # Batch-fetch full episodes and filter out inactive ones
+        record_ids = [record_id for record_id, _score in results]
+        episodes_map = self.database.get_episodes_by_ids(record_ids)
+        # Preserve vector-search ranking order
+        episodes = [
+            episodes_map[rid]
+            for rid in record_ids
+            if rid in episodes_map and episodes_map[rid].is_active
+        ]
 
         return episodes
 
@@ -216,11 +219,12 @@ class SemanticRetriever:
                 "facts", query_embedding, k=k, threshold=self.threshold
             )
 
-        facts = []
-        for record_id, _score in results:
-            fact = self.database.get_fact(record_id)
-            if fact:
-                facts.append(fact)
+        # Batch-fetch full facts and filter out inactive ones
+        record_ids = [record_id for record_id, _score in results]
+        facts_map = self.database.get_facts_by_ids(record_ids)
+        facts = [
+            facts_map[rid] for rid in record_ids if rid in facts_map and facts_map[rid].is_active
+        ]
 
         return facts
 
@@ -256,11 +260,14 @@ class SemanticRetriever:
                 "summaries", query_embedding, k=k, threshold=self.threshold
             )
 
-        summaries = []
-        for record_id, _score in results:
-            summary = self.database.get_summary(record_id)
-            if summary:
-                summaries.append(summary)
+        # Batch-fetch full summaries and filter out inactive ones
+        record_ids = [record_id for record_id, _score in results]
+        summaries_map = self.database.get_summaries_by_ids(record_ids)
+        summaries = [
+            summaries_map[rid]
+            for rid in record_ids
+            if rid in summaries_map and summaries_map[rid].is_active
+        ]
 
         return summaries
 

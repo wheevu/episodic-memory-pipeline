@@ -7,7 +7,7 @@ Handles fact lifecycle: creation, updates, contradictions.
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..llm import LLMProvider
@@ -156,7 +156,7 @@ class FactExtractor:
                 category=category,
                 topic=topic,
                 confidence=confidence,
-                valid_from=datetime.utcnow(),
+                valid_from=datetime.now(timezone.utc),
             )
             new_facts.append(fact)
 
@@ -179,7 +179,7 @@ class FactExtractor:
                     category=old_fact.category,
                     topic=topic,
                     confidence=max(0.7, old_fact.confidence),  # Slight confidence boost
-                    valid_from=datetime.utcnow(),
+                    valid_from=datetime.now(timezone.utc),
                 )
                 updated_facts.append((old_fact.id, new_fact))
 

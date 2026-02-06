@@ -622,16 +622,29 @@ class MockEmbeddingProvider(EmbeddingProvider):
     def embed_text(self, text: str) -> np.ndarray:
         """Generate a deterministic mock embedding.
 
+        Uses a local ``np.random.Generator`` seeded with a deterministic
+        SHA-256 hash of the input text.  This avoids two problems present
+        in the previous implementation:
+
+        1. **Global RNG mutation** – calling ``np.random.seed()`` corrupts
+           the global NumPy random state, which can silently affect any
+           other code that relies on ``np.random``.
+        2. **Cross-process non-reproducibility** – Python's built-in
+           ``hash()`` is salted per-process (since Python 3.3), so the
+           old ``hash(text) % 2**32`` seed differed between runs.
+
         Args:
             text: Input text to "embed".
 
         Returns:
             A normalized random vector derived from the text hash.
         """
-        # Use hash to generate reproducible "embeddings"
-        np.random.seed(hash(text) % (2**32))
-        embedding = np.random.randn(self._dimension).astype(np.float32)
-        # Normalize to unit length
+        import hashlib
+
+        # Deterministic seed from text content (stable across processes)
+        seed = int(hashlib.sha256(text.encode()).hexdigest(), 16) % (2**32)
+        rng = np.random.Generator(np.random.PCG64(seed))
+        embedding = rng.standard_normal(self._dimension).astype(np.float32)
         return _normalize_l2(embedding)
 
     def embed_batch(self, texts: list[str]) -> np.ndarray:

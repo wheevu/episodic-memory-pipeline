@@ -7,7 +7,7 @@ Handles persistence of Episodes, Facts, Summaries, and their relationships.
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -206,7 +206,10 @@ class Database:
     # =========================================================================
 
     def save_episode(self, episode: Episode) -> str:
-        """Save (insert or replace) an episode row.
+        """Save an episode, inserting if new or updating mutable fields if it exists.
+
+        Uses INSERT ... ON CONFLICT to preserve the row identity and avoid
+        cascading deletes on provenance tables (episode_facts, episode_summaries).
 
         Args:
             episode: Episode to persist.
@@ -231,7 +234,7 @@ class Database:
 
             conn.execute(
                 """
-                INSERT OR REPLACE INTO episodes (
+                INSERT INTO episodes (
                     id, created_at, occurred_at, raw_input, content,
                     memory_type, topics, entities, confidence, importance,
                     source, session_id, is_active, consolidated, embedding_id
@@ -240,6 +243,20 @@ class Database:
                     :memory_type, :topics, :entities, :confidence, :importance,
                     :source, :session_id, :is_active, :consolidated, :embedding_id
                 )
+                ON CONFLICT(id) DO UPDATE SET
+                    occurred_at = excluded.occurred_at,
+                    raw_input = excluded.raw_input,
+                    content = excluded.content,
+                    memory_type = excluded.memory_type,
+                    topics = excluded.topics,
+                    entities = excluded.entities,
+                    confidence = excluded.confidence,
+                    importance = excluded.importance,
+                    source = excluded.source,
+                    session_id = excluded.session_id,
+                    is_active = excluded.is_active,
+                    consolidated = excluded.consolidated,
+                    embedding_id = excluded.embedding_id
             """,
                 row,
             )
@@ -272,6 +289,25 @@ class Database:
             if row:
                 return Episode.from_db_row(dict(row))
             return None
+
+    def get_episodes_by_ids(self, episode_ids: list[str]) -> dict[str, Episode]:
+        """Retrieve multiple episodes by ID in a single query.
+
+        Args:
+            episode_ids: Episode identifiers to look up.
+
+        Returns:
+            A dictionary mapping episode ID to Episode for found records.
+        """
+        if not episode_ids:
+            return {}
+
+        placeholders = ",".join("?" * len(episode_ids))
+        with self._connection() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM episodes WHERE id IN ({placeholders})", episode_ids
+            )
+            return {row["id"]: Episode.from_db_row(dict(row)) for row in cursor.fetchall()}
 
     def get_episodes(
         self,
@@ -406,7 +442,10 @@ class Database:
     # =========================================================================
 
     def save_fact(self, fact: Fact, source_episode_ids: Optional[list[str]] = None) -> str:
-        """Save (insert or replace) a fact row and optionally link source episodes.
+        """Save a fact, inserting if new or updating mutable fields if it exists.
+
+        Uses INSERT ... ON CONFLICT to preserve the row identity and avoid
+        cascading deletes on provenance tables (episode_facts, summary_facts).
 
         Args:
             fact: Fact to persist.
@@ -420,7 +459,7 @@ class Database:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO facts (
+                INSERT INTO facts (
                     id, created_at, updated_at, content, category,
                     topic, entities, confidence, valid_from, valid_until,
                     is_active, superseded_by, embedding_id
@@ -429,6 +468,18 @@ class Database:
                     :topic, :entities, :confidence, :valid_from, :valid_until,
                     :is_active, :superseded_by, :embedding_id
                 )
+                ON CONFLICT(id) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    content = excluded.content,
+                    category = excluded.category,
+                    topic = excluded.topic,
+                    entities = excluded.entities,
+                    confidence = excluded.confidence,
+                    valid_from = excluded.valid_from,
+                    valid_until = excluded.valid_until,
+                    is_active = excluded.is_active,
+                    superseded_by = excluded.superseded_by,
+                    embedding_id = excluded.embedding_id
             """,
                 row,
             )
@@ -469,6 +520,37 @@ class Database:
                 return fact
             return None
 
+    def get_facts_by_ids(self, fact_ids: list[str]) -> dict[str, Fact]:
+        """Retrieve multiple facts by ID in a single query.
+
+        Source episode links are loaded in a single batch query.
+
+        Args:
+            fact_ids: Fact identifiers to look up.
+
+        Returns:
+            A dictionary mapping fact ID to Fact for found records.
+        """
+        if not fact_ids:
+            return {}
+
+        placeholders = ",".join("?" * len(fact_ids))
+        with self._connection() as conn:
+            cursor = conn.execute(f"SELECT * FROM facts WHERE id IN ({placeholders})", fact_ids)
+            facts = {row["id"]: Fact.from_db_row(dict(row)) for row in cursor.fetchall()}
+
+            # Batch-load source episode links
+            if facts:
+                cursor = conn.execute(
+                    f"SELECT fact_id, episode_id FROM episode_facts WHERE fact_id IN ({placeholders})",
+                    list(facts.keys()),
+                )
+                for row in cursor.fetchall():
+                    if row["fact_id"] in facts:
+                        facts[row["fact_id"]].source_episode_ids.append(row["episode_id"])
+
+            return facts
+
     def get_facts(
         self,
         topic: Optional[str] = None,
@@ -500,7 +582,7 @@ class Database:
 
         if current_only:
             conditions.append("(valid_until IS NULL OR valid_until > ?)")
-            params.append(datetime.utcnow().isoformat())
+            params.append(datetime.now(timezone.utc).isoformat())
             conditions.append("superseded_by IS NULL")
 
         query = f"""
@@ -557,6 +639,22 @@ class Database:
                 (new_fact.id, old_fact_id),
             )
 
+    def set_fact_active(self, fact_id: str, is_active: bool) -> None:
+        """Set a fact's active flag.
+
+        Args:
+            fact_id: Fact ID to update.
+            is_active: New active state.
+
+        Returns:
+            None.
+        """
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE facts SET is_active = ? WHERE id = ?",
+                (is_active, fact_id),
+            )
+
     # =========================================================================
     # Summary Operations
     # =========================================================================
@@ -567,7 +665,10 @@ class Database:
         source_episode_ids: Optional[list[str]] = None,
         key_episode_ids: Optional[list[str]] = None,
     ) -> str:
-        """Save (insert or replace) a summary row and link contributing episodes.
+        """Save a summary, inserting if new or updating mutable fields if it exists.
+
+        Uses INSERT ... ON CONFLICT to preserve the row identity and avoid
+        cascading deletes on provenance tables (episode_summaries, summary_facts).
 
         Args:
             summary: Summary to persist.
@@ -582,7 +683,7 @@ class Database:
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO summaries (
+                INSERT INTO summaries (
                     id, created_at, updated_at, content, topic,
                     time_start, time_end, episode_count, key_events,
                     parent_summary_id, summary_level, is_active, embedding_id
@@ -591,6 +692,18 @@ class Database:
                     :time_start, :time_end, :episode_count, :key_events,
                     :parent_summary_id, :summary_level, :is_active, :embedding_id
                 )
+                ON CONFLICT(id) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    content = excluded.content,
+                    topic = excluded.topic,
+                    time_start = excluded.time_start,
+                    time_end = excluded.time_end,
+                    episode_count = excluded.episode_count,
+                    key_events = excluded.key_events,
+                    parent_summary_id = excluded.parent_summary_id,
+                    summary_level = excluded.summary_level,
+                    is_active = excluded.is_active,
+                    embedding_id = excluded.embedding_id
             """,
                 row,
             )
@@ -614,7 +727,7 @@ class Database:
                 UPDATE topics SET last_consolidation = ?
                 WHERE name = ?
             """,
-                (datetime.utcnow().isoformat(), summary.topic),
+                (datetime.now(timezone.utc).isoformat(), summary.topic),
             )
 
         return summary.id
@@ -640,6 +753,39 @@ class Database:
                 summary.source_episode_ids = [r["episode_id"] for r in cursor.fetchall()]
                 return summary
             return None
+
+    def get_summaries_by_ids(self, summary_ids: list[str]) -> dict[str, Summary]:
+        """Retrieve multiple summaries by ID in a single query.
+
+        Source episode links are loaded in a single batch query.
+
+        Args:
+            summary_ids: Summary identifiers to look up.
+
+        Returns:
+            A dictionary mapping summary ID to Summary for found records.
+        """
+        if not summary_ids:
+            return {}
+
+        placeholders = ",".join("?" * len(summary_ids))
+        with self._connection() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM summaries WHERE id IN ({placeholders})", summary_ids
+            )
+            summaries = {row["id"]: Summary.from_db_row(dict(row)) for row in cursor.fetchall()}
+
+            # Batch-load source episode links
+            if summaries:
+                cursor = conn.execute(
+                    f"SELECT summary_id, episode_id FROM episode_summaries WHERE summary_id IN ({placeholders})",
+                    list(summaries.keys()),
+                )
+                for row in cursor.fetchall():
+                    if row["summary_id"] in summaries:
+                        summaries[row["summary_id"]].source_episode_ids.append(row["episode_id"])
+
+            return summaries
 
     def get_summaries(
         self,
@@ -815,3 +961,27 @@ class Database:
             stats["total_topics"] = cursor.fetchone()[0]
 
             return stats
+
+    def get_active_record_ids(self, table: str) -> set[str]:
+        """Return the set of active record IDs for a given table.
+
+        Useful for consistency checks against the vector store.
+
+        Args:
+            table: One of {"episodes", "facts", "summaries"}.
+
+        Returns:
+            A set of active record IDs.
+
+        Raises:
+            ValueError: If `table` is not one of the allowed table names.
+        """
+        valid_tables = {"episodes", "facts", "summaries"}
+        if table not in valid_tables:
+            raise ValueError(f"Invalid table: {table}")
+
+        with self._connection() as conn:
+            cursor = conn.execute(
+                f"SELECT id FROM {table} WHERE is_active = TRUE AND embedding_id IS NOT NULL"
+            )
+            return {row["id"] for row in cursor.fetchall()}

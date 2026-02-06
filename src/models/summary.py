@@ -5,7 +5,7 @@ A summary weaves together multiple episodes into a coherent narrative
 about a topic over a time period.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -126,8 +126,8 @@ class Summary(BaseModel):
 
         return cls(
             id=row["id"],
-            created_at=parse_datetime(row["created_at"]) or datetime.utcnow(),
-            updated_at=parse_datetime(row["updated_at"]) or datetime.utcnow(),
+            created_at=parse_datetime(row["created_at"]) or datetime.now(timezone.utc),
+            updated_at=parse_datetime(row["updated_at"]) or datetime.now(timezone.utc),
             content=row["content"],
             topic=row["topic"],
             time_start=parse_datetime(row["time_start"]),

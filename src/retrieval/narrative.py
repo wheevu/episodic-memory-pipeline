@@ -6,7 +6,7 @@ For queries like "What have I said about learning Korean?" or
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ..embeddings import EmbeddingProvider
@@ -140,10 +140,14 @@ class NarrativeRetriever:
         if not results:
             return NarrativeResult(episodes=[], facts=[], summaries=[], topic=None, time_span=None)
 
-        # Fetch episodes and infer topic
+        # Batch-fetch episodes and filter out missing/inactive
         episode_ids = [rid for rid, _ in results]
-        episodes = [self.database.get_episode(eid) for eid in episode_ids]
-        episodes = [ep for ep in episodes if ep is not None]
+        episodes_map = self.database.get_episodes_by_ids(episode_ids)
+        episodes = [
+            episodes_map[eid]
+            for eid in episode_ids
+            if eid in episodes_map and episodes_map[eid].is_active
+        ]
 
         if not episodes:
             return NarrativeResult(episodes=[], facts=[], summaries=[], topic=None, time_span=None)
@@ -201,7 +205,7 @@ class NarrativeRetriever:
         Returns:
             A `NarrativeResult` constrained to the lookback period.
         """
-        since = datetime.utcnow() - timedelta(days=days)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
         return self.recall(topic, since=since)
 
     def get_key_moments(

@@ -6,7 +6,7 @@ Orchestrates: classification → extraction → embedding → storage
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..embeddings import EmbeddingProvider
@@ -144,7 +144,7 @@ class IngestionPipeline:
         Returns:
             An `IngestionResult` describing whether storage occurred and why.
         """
-        timestamp = timestamp or datetime.utcnow()
+        timestamp = timestamp or datetime.now(timezone.utc)
 
         # Input validation
         MAX_TEXT_LENGTH = 50_000
