@@ -1,197 +1,132 @@
 # Episodic Memory Pipeline
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square)
-![Architecture](https://img.shields.io/badge/Architecture-Cognitive-orange?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Status](https://img.shields.io/badge/Status-Maintained-success?style=flat-square)
 
-**A local-first cognitive architecture for AI agents.**
+**Giving local AI agents human-like memory by separating what they experience (episodic) from what they know (semantic).**
 
-This system models human-like memory consolidation by separating **Episodic Memory** (raw, timestamped events) from **Semantic Memory** (stable, consolidated facts). It includes defense-in-depth LLM sanitization, provenance tracking, and multilingual (CJK) optimization using **Qwen 2.5** and **BGE-M3**.
+This memory system pipeline models human cognitive processes: it captures raw experiences, and acts like a brain during sleep, storing events into stable facts and keeping a coherent narratives over time.
 
-## Quick Start (Reproducible Demo)
+## How It Works
+
+Imagine an agent helping a user plan a trip. Here is how the system processes that interaction:
+
+### 1. Experience (Episodic Memory)
+The agent captures raw, timestamped events as they happen.
+> *Tuesday, 3:00 PM: "I just started learning Korean. I want to be conversational before my flight to Seoul in March."*
+
+### 2. Consolidation (The "Sleep" Phase)
+Ideally run periodically (e.g., daily), the system analyzes recent episodes to compress them.
+> *System identifies a new goal (Language Learning) and a future event (Trip).*
+
+### 3. Knowledge (Semantic Memory & Summaries)
+The raw events are distilled into stable knowledge that is easy to query later.
+*   **Fact:** User is learning Korean.
+*   **Fact:** User has a trip to Seoul planned for March 2024.
+*   **Summary:** "In January 2024, the user began an intensive Korean study regimen motivated by an upcoming trip to Seoul."
+
+## Project Structure
+
+*   `src/models/`: Data definitions (Episode, Fact, Summary).
+*   `src/services/`: Core logic (Ingestion, Consolidation, Retrieval).
+*   `src/storage/`: Database (SQLite) and Vector (FAISS) wrappers.
+*   `demo_data/`: Synthetic fixtures for testing.
+
+## Key Features
+
+*   **Local-First:** Built on SQLite and FAISS. No server dependencies, single-file portability.
+*   **Traceability:** Every fact and summary links back to the specific episodes that created it. Zero hallucinated memories.
+*   **Self-Correction:** Includes "defense-in-depth" sanitization. If the LLM outputs malformed JSON, the pipeline repairs it automatically.
+*   **Evaluation-Ready:** Comes with a full evaluation framework to benchmark memory recall and precision.
+
+---
+
+## Quick Start
+
+You can run the full pipeline locally without an LLM (using mocks) to see the architecture in action immediately.
 
 ```bash
 git clone https://github.com/wheevu/episodic-memory-pipeline
 cd episodic-memory-pipeline
 pip install -e .
 
-# Generate local artifacts deterministically (no committed binaries)
-make demo
-```
-
-For a fast, dependency-light run (no models), use `make demo-mock`.
-
-## CLI
-
-After installation, the console script is available:
-
-```bash
-episodic-memory doctor --dry
-episodic-memory ingest "I started learning Korean today"
-episodic-memory query "What am I learning?"
-episodic-memory recall "korean" --topic
-episodic-memory consolidate --all
-episodic-memory stats
-```
-
-Legacy entrypoint still works:
-
-```bash
-python cli.py doctor --dry
-python cli.py query "What am I learning?"
-```
-
-## Evaluation (Versioned Runs)
-
-Evaluation runs live under `runs/eval/<run_id>/eval_run.json` and include:
-
-- git commit hash (if available)
-- config snapshot (provider/model, k, scenario)
-- metrics + warnings
-
-```bash
-episodic-memory eval-run --scenario diary
-episodic-memory eval-list
-episodic-memory eval-compare <runA> <runB>
-```
-
-## Design Philosophy
-
-1. **Episodic memory ≠ vector blobs**: Each memory is a structured event with context, time, and meaning.
-2. **Time and provenance matter**: Every fact and summary links back to source episodes. Hallucination prevention starts with lineage.
-3. **Memory must be curated, not accumulated**: Not everything is worth remembering. We filter aggressively via a "Memory Worthiness" gate.
-4. **Retrieval should feel like recalling a journey**: Narrative coherence over raw similarity scores.
-5. **Defense-in-depth validation**: Input sanitization (length limits, type checking), LLM output sanitization (topics/entities filtering), and automatic retry logic for API failures ensure production robustness.
-
-## Architecture & Evaluation Details
-
-For the full architecture diagram, evaluation framework, and design rationale, see `ARCHITECTURE.md`.
-
-## Storage Choice: SQLite + FAISS
-
-**Why SQLite over Postgres?**
-
-- Local-first, no server dependencies
-- Single-file portability (backup = copy file)
-- JSON1 extension for flexible metadata
-- Zero configuration required
-
-**Why FAISS for vectors?**
-
-- Mature, fast, local-only C++ library
-- Supports multiple index types for scaling
-- Works well alongside SQLite for hybrid retrieval
-
-## Core Concepts
-
-### Episode (Episodic Memory)
-
-A timestamped event capturing what happened, when, and in what context.
-
-> _“On Tuesday at 3pm, I told my assistant I'm learning Korean for a trip to Seoul in March.”_
-
-### Fact (Semantic Memory)
-
-A distilled, stable piece of knowledge extracted from episodes.
-
-> _“User is learning Korean. User has a trip to Seoul planned for March 2024.”_
-
-### Summary (Consolidated Narrative)
-
-A topic-level summary that weaves multiple episodes into a coherent narrative.
-
-> _“User's Korean language learning journey: Started in January 2024 motivated by upcoming Seoul trip...”_
-
-## Configuration
-
-Copy `env.example` to `.env` (or export vars directly) and configure:
-
-```bash
-# Embeddings (default: local)
-EMBEDDING_PROVIDER=local            # local|openai|ollama|mock
-EMBEDDING_MODEL=BAAI/bge-m3          # local/openai model name
-EMBEDDING_DEVICE=cpu                # cpu|cuda|mps
-OLLAMA_EMBED_MODEL=nomic-embed-text # when EMBEDDING_PROVIDER=ollama
-
-# LLM
-LLM_PROVIDER=ollama                 # openai|ollama
-LLM_MODEL=gpt-4o-mini               # when LLM_PROVIDER=openai
-OLLAMA_MODEL=qwen2.5:7b-instruct
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_TEMPERATURE=0.2
-
-# API keys
-OPENAI_API_KEY=sk-your-key-here
-
-# Storage
-DATABASE_PATH=./data/memory.db
-VECTOR_INDEX_PATH=./data/vectors.faiss
-```
-
-## Local-First Setup with Qwen (Recommended)
-
-```bash
-# Install Ollama
-brew install ollama  # macOS
-# or: curl -fsSL https://ollama.com/install.sh | sh  # Linux
-
-ollama pull qwen2.5:7b-instruct
-ollama serve
-
-export LLM_PROVIDER=ollama
-export OLLAMA_MODEL=qwen2.5:7b-instruct
-export EMBEDDING_PROVIDER=local
-```
-
-## Demo Data Policy
-
-The `demo_data/` directory contains **synthetic data only** for demo and testing.
-
-- ✅ Fictional diary entries and memories
-- ✅ Example evaluation queries
-- ❌ Never commit real user data
-- ❌ No sensitive information (API keys, PII)
-
-See `demo_data/README.md` for details.
-
-## Development
-
-Install dev dependencies with `make install-dev` (or `pip install -e ".[dev]"`).
-
-```bash
-make test
-make test-slow
-make lint
-make format
-
-make demo
-make demo-clean
+# Run a fast demo with mock providers
 make demo-mock
 ```
 
-## Project Structure (High Level)
+To use a real LLM (Ollama or OpenAI), see [Configuration](#configuration).
 
+## Usage Workflow
+
+The system is designed to be used in a continuous loop: **Remember → Consolidate → Recall**.
+
+### 1. Remember (Ingest)
+Store text from a user interaction. The system automatically classifies if it's worth remembering (filtering out "Hi" or "Okay").
+```bash
+episodic-memory ingest "I started learning Korean today"
 ```
-src/cli/        # CLI commands + rendering (Rich/Click)
-src/services/   # Business logic (no Rich/Click; returns plain dataclasses/dicts)
-scripts/        # Reproducible bootstrap utilities
-demo_data/      # Synthetic fixtures (safe-to-commit)
-runs/eval/      # Versioned eval run outputs (gitignored per-run)
-data/           # Generated local artifacts (gitignored)
+
+### 2. Consolidate (Process)
+Trigger the consolidation process to extract facts and summaries from recent episodes.
+```bash
+episodic-memory consolidate --all
 ```
 
-## macOS: FAISS + SentenceTransformers Note
+### 3. Recall (Query)
+Retrieve information using natural language. The system decides whether to fetch specific facts or recount a narrative journey.
+```bash
+# Ask a specific question
+episodic-memory query "What am I learning?"
 
-On macOS, there is a known interaction issue between FAISS and SentenceTransformers during Python cleanup. **This is handled automatically** by the bootstrap module.
+# Recall a narrative journey
+episodic-memory recall "korean" --topic
+```
 
-For library users, import from `src.bootstrap`:
+---
+
+## Configuration
+
+The system is local-first but flexible. Copy `env.example` to `.env` to configure your backend.
+
+### Option A: Local (Recommended)
+Free and private. Requires [Ollama](https://ollama.com/).
+
+```bash
+# .env
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen2.5:7b-instruct
+EMBEDDING_PROVIDER=local
+EMBEDDING_MODEL=BAAI/bge-m3
+```
+
+### Option B: OpenAI
+```bash
+# .env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key-here
+EMBEDDING_PROVIDER=openai
+```
+
+## Developer Interface
+
+To integrate this into your own Python agent:
 
 ```python
-from src.bootstrap import get_components
+from src.memory import MemorySystem
 
-components = get_components()
-# components.database, components.embedding_provider, etc.
+# Automatically loads config from .env
+mem = MemorySystem() 
+
+# 1. Store an interaction
+mem.remember("I need to buy groceries for the dinner party")
+
+# 2. Retrieve context for your agent prompt
+# Returns relevant facts, recent episodes, and topic summaries
+context = mem.get_context("groceries")
+
+# 3. Direct query
+result = mem.recall("What do I need to do?")
+print(result.answer)
 ```
 
 ## License
