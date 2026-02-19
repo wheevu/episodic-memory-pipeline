@@ -27,23 +27,16 @@
                     ▼                          │
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                           STORAGE LAYER                                    │
-│  ┌─────────────────────────────┐   ┌────────────────────────────────────┐ │
-│  │         SQLite              │   │           FAISS                    │ │
-│  │  ┌─────────┐ ┌──────────┐  │   │  ┌───────────┐  ┌───────────────┐  │ │
-│  │  │Episodes │ │  Facts   │  │   │  │ Episode   │  │    Fact       │  │ │
-│  │  │         │ │          │  │   │  │ Vectors   │  │   Vectors     │  │ │
-│  │  └────┬────┘ └────┬─────┘  │   │  └───────────┘  └───────────────┘  │ │
-│  │       │           │        │   │                                     │ │
-│  │  ┌────▼───────────▼─────┐  │   │  ┌───────────────────────────────┐  │ │
-│  │  │     Summaries        │  │   │  │      Summary Vectors          │  │ │
-│  │  └──────────────────────┘  │   │  └───────────────────────────────┘  │ │
-│  │                            │   │                                     │ │
-│  │  ┌──────────────────────┐  │   └────────────────────────────────────┘ │
-│  │  │    Provenance        │  │                                          │
-│  │  │  (episode_facts,     │  │                                          │
-│  │  │  episode_summaries)  │  │                                          │
-│  │  └──────────────────────┘  │                                          │
-│  └─────────────────────────────┘                                          │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                               LanceDB                                │  │
+│  │  ┌───────────────┐  ┌───────────────┐  ┌──────────────────────────┐ │  │
+│  │  │   Episodes    │  │     Facts     │  │        Summaries         │ │  │
+│  │  │ + vectors     │  │ + vectors     │  │ + vectors                │ │  │
+│  │  └───────────────┘  └───────────────┘  └──────────────────────────┘ │  │
+│  │                                                                       │  │
+│  │  Provenance fields are stored directly with records                   │  │
+│  │  (e.g., source_episode_ids) for traceability.                         │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────────┘
                     │
                     ▼
@@ -59,24 +52,17 @@
 
 ## Design Decisions
 
-### 1. Why SQLite + FAISS instead of pgvector?
+### 1. Why LanceDB (unified) instead of split SQLite + FAISS?
 
-**SQLite advantages for this use case:**
+**LanceDB advantages for this use case:**
 
-- Zero configuration, no server process
-- Single-file database (easy backup: copy file)
-- Sufficient performance for single-user workloads
-- JSON1 extension handles flexible metadata
-- Works offline without any network dependencies
+- Single local backend for both metadata and vectors
+- Atomic record + embedding writes reduce consistency edge cases
+- SQL-like filtering plus vector search in one query path
+- No server process; still local-first and offline-capable
+- Simpler maintenance surface than coordinating two stores
 
-**FAISS advantages:**
-
-- Mature, battle-tested vector similarity library
-- Supports multiple index types for different scale/accuracy tradeoffs
-- Pure local computation (no network latency)
-- Easy to persist and load indices
-
-**Trade-off:** If this were multi-user or high-scale, pgvector with Postgres would be better for ACID guarantees and concurrent access.
+**Trade-off:** For multi-tenant, high-concurrency deployments, Postgres/pgvector may still be preferable due to stronger transactional semantics and ecosystem tooling.
 
 ### 2. Local LLM Choice: Qwen 2.5 7B
 
@@ -110,7 +96,7 @@ top_p = 0.9        # Slight diversity for natural summaries
 repeat_penalty = 1.1  # Prevent repetitive outputs
 ```
 
-### 3. Local Embedding Choice: BGE-M3
+### 3. Local Embedding Choice: BGE-M3 via FastEmbed (ONNX)
 
 For semantic search and retrieval, we use **BAAI/bge-m3** as the default embedding model.
 
@@ -130,18 +116,17 @@ For semantic search and retrieval, we use **BAAI/bge-m3** as the default embeddi
 
 2. **Multilingual excellence**: Memory systems contain mixed languages (names, phrases, locations). BGE-M3 handles 100+ languages natively without quality degradation.
 
-3. **No API dependency**: Runs entirely locally via SentenceTransformers. No rate limits, no costs, works offline.
+3. **No API dependency**: Runs entirely locally via FastEmbed (ONNX). No rate limits, no costs, works offline.
 
 4. **Balanced dimensions**: 1024-dimensional embeddings provide good quality/storage trade-off (vs 384 for MiniLM or 1536+ for OpenAI).
 
-**How FAISS uses normalized embeddings:**
+**How retrieval uses normalized embeddings:**
 
 ```python
 # All embeddings are L2-normalized at creation time
 embedding = model.encode(text, normalize_embeddings=True)
 
-# FAISS IndexFlatIP (inner product) on normalized vectors = cosine similarity
-# This is efficient and mathematically equivalent:
+# For normalized vectors, inner product is equivalent to cosine similarity:
 # cosine_sim(a, b) = dot(a, b) / (norm(a) * norm(b))
 # When norm(a) = norm(b) = 1: cosine_sim(a, b) = dot(a, b)
 ```
@@ -150,7 +135,7 @@ embedding = model.encode(text, normalize_embeddings=True)
 
 1. **Model download**: First run downloads ~1GB model. Subsequent runs use cached model.
 2. **Memory usage**: Model requires ~2GB RAM when loaded.
-3. **CPU speed**: Embedding 100 texts takes ~5-10 seconds on CPU. Use `EMBEDDING_DEVICE=cuda` or `mps` for faster processing.
+3. **CPU speed**: Throughput depends on model/runtime and hardware; very large batch ingestion can still be CPU-bound.
 
 **Alternative models:**
 
@@ -166,63 +151,18 @@ export EMBEDDING_PROVIDER=ollama
 export OLLAMA_EMBED_MODEL=nomic-embed-text  # 768 dims
 ```
 
-### 4. Initialization Order & Native Library Interactions
+### 4. Initialization Simplification After Migration
 
-**The Problem: FAISS + SentenceTransformers on macOS**
+The previous macOS-specific FAISS + SentenceTransformers initialization ordering constraints are no longer part of the architecture.
 
-On macOS, there's a known conflict between FAISS (C++ native library) and SentenceTransformers (which uses PyTorch and HuggingFace tokenizers). When Python exits, the cleanup routines of these libraries can conflict, causing SIGSEGV (segmentation fault).
+Current bootstrap behavior (`src/bootstrap.py`) is intentionally simple:
 
-This happens because:
+1. Create unified storage (`LanceStore`)
+2. Create embedding provider (FastEmbed/OpenAI/Ollama/mock)
+3. Create LLM provider
+4. Return pipeline components
 
-1. HuggingFace tokenizers spawn parallel worker processes
-2. FAISS initializes its own native memory management
-3. Python's `atexit` handlers run in an undefined order
-4. Workers may try to access memory after FAISS cleanup, or vice versa
-
-**The Solution: Bootstrap Module**
-
-We solve this with a dedicated bootstrap module (`src/bootstrap.py`) that guarantees safe initialization order:
-
-```python
-# src/bootstrap.py (simplified)
-
-import os
-os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')  # Step 1: Disable parallel tokenizers
-
-# Step 2: Load embedding model FIRST (this initializes PyTorch/tokenizers)
-from src.embeddings import LocalEmbeddingProvider
-_embedding_model = LocalEmbeddingProvider(model_name="BAAI/bge-m3")
-
-# Step 3: NOW safe to import FAISS modules
-from src.storage import VectorStore  # imports faiss
-```
-
-**Why this works:**
-
-1. **`TOKENIZERS_PARALLELISM=false`** prevents tokenizers from spawning subprocesses that can interfere with cleanup
-2. **Loading SentenceTransformers first** ensures PyTorch initializes before FAISS
-3. **Lazy FAISS import** means FAISS's native code initializes after PyTorch's is stable
-
-**For CLI users:** This is automatic. Just use `python cli.py` normally.
-
-**For library users:** Import from `src.bootstrap` instead of importing modules directly:
-
-```python
-# GOOD: Use bootstrap
-from src.bootstrap import get_components
-components = get_components()
-
-# BAD: Direct imports may cause segfaults
-from src.storage import VectorStore  # DON'T do this at module level
-```
-
-**Limitations:**
-
-- Segfaults may still occur during Python exit (not during normal operation)
-- This affects tests that import both embedding and FAISS modules
-- The bootstrap pattern adds a small complexity cost
-
-See `src/bootstrap.py` for the complete implementation with extensive comments.
+This reduces native-library interaction complexity and removes the need for tokenizers-parallelism bootstrap workarounds.
 
 **Observability: The Doctor Command**
 
@@ -235,14 +175,12 @@ python cli.py doctor
 This diagnostic command reports:
 
 - Bootstrap initialization status
-- Whether the embedding model cache is active
-- TOKENIZERS_PARALLELISM environment variable state
 - Active LLM and embedding providers with model details
-- Vector store configuration and dimension consistency
+- Unified store configuration and dimension consistency
 - Evaluation readiness warnings
 - Copy-pasteable fix suggestions for misconfigurations
 
-**Dry-Run Mode**: Use `python cli.py doctor --dry` for a safe config-only inspection that does NOT initialize any models, FAISS indices, or database connections. This allows diagnostics to run even when dependencies are missing or misconfigured, making it ideal for CI/CD pipelines, code reviews, and debugging environment issues.
+**Dry-Run Mode**: Use `python cli.py doctor --dry` for a safe config-only inspection that does NOT initialize models or storage backends. This allows diagnostics to run even when dependencies are missing or misconfigured, making it ideal for CI/CD pipelines, code reviews, and debugging environment issues.
 
 **Suggested Fixes**: The doctor command now generates actionable shell commands to fix detected issues. This improves observability by making the path from "something is wrong" to "here's how to fix it" explicit and copy-pasteable.
 
@@ -366,9 +304,9 @@ The system distinguishes between:
 
 Every piece of derived knowledge (facts, summaries) links back to source episodes:
 
-```sql
-episode_facts: episode_id → fact_id + relationship (source/confirms/contradicts)
-episode_summaries: episode_id → summary_id + is_key_event
+```text
+facts.source_episode_ids: [episode_id, ...]
+summaries.source_episode_ids: [episode_id, ...]
 ```
 
 This enables:
@@ -726,7 +664,33 @@ adversarial_scenarios = [
        for ep in candidates:
            ep.is_active = False
            db.save_episode(ep)
-   ```
+    ```
+
+## Migration Note (Breaking Changes)
+
+### Storage Backend
+
+- **From:** SQLite (metadata) + FAISS (vectors)
+- **To:** LanceDB for unified metadata + vector storage
+- **Why:** single-store consistency, atomic writes, simpler retrieval/filter paths, lower operational complexity.
+
+### Local Embedding Runtime
+
+- **From:** SentenceTransformers
+- **To:** FastEmbed (ONNX)
+- **Why:** smaller runtime/dependency surface and simpler local configuration.
+
+### JSON Parsing Flow
+
+- **From:** repeated `complete()` + `json.loads(...)` at many callsites
+- **To:** centralized `complete_json()` with retryable extraction
+- **Why:** better resilience to malformed model output and less duplicated parsing code.
+
+### Prompt Rule Maintenance
+
+- **From:** copy-pasted JSON-output rule blocks in multiple prompts
+- **To:** shared `JSON_OUTPUT_RULES` composed into templates
+- **Why:** consistent constraints and easier maintenance.
 
 ## Conclusion
 
