@@ -32,12 +32,11 @@ class BootstrapStatus:
 
     is_initialized: bool
     has_cached_model: bool
-    tokenizers_parallelism_disabled: bool
 
 
 @dataclass
-class VectorStoreStatus:
-    """Status of the vector store."""
+class StoreStatus:
+    """Status of the unified LanceDB store."""
 
     index_type: str
     similarity_metric: str
@@ -63,7 +62,7 @@ class DiagnosticsResult:
     bootstrap: BootstrapStatus
     llm: ProviderStatus
     embedding: ProviderStatus
-    vector_store: VectorStoreStatus
+    vector_store: StoreStatus
     eval_readiness: EvalReadiness
     suggestions: List[str]
 
@@ -152,20 +151,18 @@ class DiagnosticsService:
         env_vars = {
             "EMBEDDING_PROVIDER": os.getenv("EMBEDDING_PROVIDER"),
             "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL"),
-            "EMBEDDING_DEVICE": os.getenv("EMBEDDING_DEVICE"),
             "EMBEDDING_DIMENSION": os.getenv("EMBEDDING_DIMENSION"),
             "LLM_PROVIDER": os.getenv("LLM_PROVIDER"),
+            "LLM_MODEL": os.getenv("LLM_MODEL"),
             "OLLAMA_MODEL": os.getenv("OLLAMA_MODEL"),
             "OLLAMA_BASE_URL": os.getenv("OLLAMA_BASE_URL"),
             "OPENAI_API_KEY": "***" if os.getenv("OPENAI_API_KEY") else None,
-            "TOKENIZERS_PARALLELISM": os.getenv("TOKENIZERS_PARALLELISM"),
         }
 
         # Resolved values
         resolved = {
             "embedding_provider": config.embedding_provider,
             "embedding_model": config.embedding_model,
-            "embedding_device": config.embedding_device,
             "embedding_dimension": config.embedding_dimension,
             "llm_provider": config.llm_provider,
             "llm_model": (
@@ -213,16 +210,9 @@ class DiagnosticsService:
         Returns:
             `BootstrapStatus` describing whether bootstrap is initialized and cached.
         """
-        import os
-
-        from src.bootstrap import get_cached_embedding_model, is_initialized
-
         return BootstrapStatus(
-            is_initialized=is_initialized(),
-            has_cached_model=get_cached_embedding_model() is not None,
-            tokenizers_parallelism_disabled=(
-                os.environ.get("TOKENIZERS_PARALLELISM", "").lower() == "false"
-            ),
+            is_initialized=self.components is not None,
+            has_cached_model=False,
         )
 
     def _get_llm_status(self) -> ProviderStatus:
@@ -293,7 +283,7 @@ class DiagnosticsService:
                 type="local",
                 model=model_name,
                 is_mock=False,
-                device=config.embedding_device,
+                device="N/A",
                 dimension=emb.dimension,
             )
         elif isinstance(emb, OllamaEmbeddingProvider):
@@ -312,40 +302,37 @@ class DiagnosticsService:
                 dimension=emb.dimension,
             )
 
-    def _get_vector_store_status(self, embedding_dim: int) -> VectorStoreStatus:
-        """Get vector store status.
+    def _get_vector_store_status(self, embedding_dim: int) -> StoreStatus:
+        """Get unified store status.
 
         Args:
             embedding_dim: Expected embedding dimension for consistency checks.
 
         Returns:
-            `VectorStoreStatus` describing the current FAISS indexes and health.
+            `StoreStatus` describing LanceDB table counts and health.
         """
-        vs = self.components.vector_store
-        vs_stats = vs.get_statistics()
+        store = self.components.lance_store
+        stats = store.get_statistics()
 
-        indexes = {}
-        total = 0
-        has_unsaved = False
-        for name, info in vs_stats.items():
-            count = info.get("count", 0)
-            indexes[name] = count
-            total += count
-            if info.get("has_unsaved_changes", False):
-                has_unsaved = True
+        indexes = {
+            "episodes": stats.get("total_episodes", 0),
+            "facts": stats.get("total_facts", 0),
+            "summaries": stats.get("total_summaries", 0),
+        }
+        total = sum(indexes.values())
 
-        return VectorStoreStatus(
-            index_type="IndexFlatIP (Inner Product)",
-            similarity_metric="Cosine (via inner product on L2-normalized vectors)",
-            dimension=vs.dimension,
-            dimension_match=(vs.dimension == embedding_dim),
+        return StoreStatus(
+            index_type="LanceDB (columnar vector tables)",
+            similarity_metric="Cosine (L2-normalized vectors)",
+            dimension=store.embedding_dimension,
+            dimension_match=(store.embedding_dimension == embedding_dim),
             indexes=indexes,
             total_vectors=total,
-            has_unsaved_changes=has_unsaved,
+            has_unsaved_changes=False,
         )
 
     def _get_eval_readiness(
-        self, llm: ProviderStatus, embedding: ProviderStatus, vector_store: VectorStoreStatus
+        self, llm: ProviderStatus, embedding: ProviderStatus, vector_store: StoreStatus
     ) -> EvalReadiness:
         """Determine evaluation readiness.
 
@@ -373,7 +360,7 @@ class DiagnosticsService:
         return EvalReadiness(is_ready=len(warnings) == 0, warnings=warnings)
 
     def _generate_suggestions(
-        self, llm: ProviderStatus, embedding: ProviderStatus, vector_store: VectorStoreStatus
+        self, llm: ProviderStatus, embedding: ProviderStatus, vector_store: StoreStatus
     ) -> List[str]:
         """Generate fix suggestions for common diagnostic issues.
 
@@ -388,21 +375,14 @@ class DiagnosticsService:
         suggestions = []
 
         if embedding.is_mock:
-            suggestions.append("# Fix mock embeddings - use local SentenceTransformers:")
-            suggestions.append("export EMBEDDING_PROVIDER=local")
-            suggestions.append("export EMBEDDING_MODEL=BAAI/bge-m3")
-            suggestions.append("export EMBEDDING_DEVICE=cpu  # or 'mps' for Apple Silicon")
+            suggestions.append("# Fix mock embeddings:")
+            suggestions.append("export EMBEDDING_PROVIDER=ollama")
+            suggestions.append("export OLLAMA_EMBED_MODEL=nomic-embed-text")
 
         if llm.is_mock:
             suggestions.append("")
             suggestions.append("# Fix mock LLM - use Ollama (local):")
             suggestions.append("export LLM_PROVIDER=ollama")
             suggestions.append("export OLLAMA_MODEL=qwen2.5:7b-instruct")
-
-        if vector_store.has_unsaved_changes:
-            suggestions.append("")
-            suggestions.append("# Persist unsaved vectors to disk:")
-            suggestions.append("# In Python: vector_store.save()")
-            suggestions.append("# Or use auto_save=True when initializing VectorStore")
 
         return suggestions

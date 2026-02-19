@@ -31,7 +31,8 @@ class PromptTemplates:
     # INGESTION PROMPTS
     # =========================================================================
 
-    MEMORY_WORTHINESS = """You are a memory curator for a personal AI assistant. Your job is to determine if a piece of text contains information worth remembering about the user.
+    MEMORY_WORTHINESS = (
+        """You are a memory curator for a personal AI assistant. Your job is to determine if a piece of text contains information worth remembering about the user.
 
 INPUT TEXT:
 {text}
@@ -60,11 +61,10 @@ Things that are NOT worth remembering:
 - General knowledge questions
 - Temporary states ("I'm tired right now")
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- All fields must be present
+"""
+        + JSON_OUTPUT_RULES
+        + """
 - Use false as default for is_memory_worthy if uncertain
-- Use 0.5 as default for confidence if uncertain
 - Use "none" as default for memory_type if not applicable
 
 Respond in this exact JSON format:
@@ -82,8 +82,10 @@ Example for memory-worthy input:
     "reason": "Contains personal preference about learning goals",
     "memory_type": "preference"
 }}"""
+    )
 
-    EPISODE_EXTRACTION = """You are extracting structured episodic memory from user input.
+    EPISODE_EXTRACTION = (
+        """You are extracting structured episodic memory from user input.
 
 INPUT TEXT:
 {text}
@@ -115,13 +117,11 @@ Extract entities as named things (people, places, organizations, specific items)
 
 If time references are mentioned (e.g., "yesterday", "last week", "in March"), adjust the inferred event time accordingly.
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for topics and entities if none found
+"""
+        + JSON_OUTPUT_RULES
+        + """
 - Use "episodic" as default memory_type if uncertain
-- Use 0.5 as default importance if uncertain
 - Use "none" for occurred_at_offset if no time reference
-- All fields must be present
 
 Respond in this exact JSON format:
 {{
@@ -142,12 +142,14 @@ Example with extracted values:
     "importance": 0.7,
     "occurred_at_offset": "none"
 }}"""
+    )
 
     # =========================================================================
     # CONSOLIDATION PROMPTS
     # =========================================================================
 
-    SUMMARIZATION = """You are creating a narrative summary of recent episodic memories for a personal AI assistant.
+    SUMMARIZATION = (
+        """You are creating a narrative summary of recent episodic memories for a personal AI assistant.
 
 TOPIC: {topic}
 TIME PERIOD: {time_start} to {time_end}
@@ -167,11 +169,9 @@ The summary should:
 - Highlight progression over time if applicable
 - Be 2-4 paragraphs maximum
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for key_events, themes, notable_changes if none found
-- Always provide a summary string (never null)
-- All fields must be present
+"""
+        + JSON_OUTPUT_RULES
+        + """
 
 Respond in this exact JSON format:
 {{
@@ -188,8 +188,10 @@ Example with content:
     "themes": ["language_learning", "self_improvement"],
     "notable_changes": ["Shifted from app-only to multimedia learning approach"]
 }}"""
+    )
 
-    FACT_EXTRACTION = """You are extracting stable facts from episodic memories for a personal AI assistant.
+    FACT_EXTRACTION = (
+        """You are extracting stable facts from episodic memories for a personal AI assistant.
 
 TOPIC: {topic}
 
@@ -218,13 +220,10 @@ For each fact, determine:
 - Does it contradict an existing fact?
 - How confident are we? (based on clarity, repetition, recency)
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for new_facts, updated_facts, contradicted_facts if none found
+"""
+        + JSON_OUTPUT_RULES
+        + """
 - Each fact object must have all required fields
-- Use empty string "" instead of null for string fields
-- Use 0.8 as default confidence if uncertain
-- All fields must be present
 
 Respond in this exact JSON format (empty arrays are valid):
 {{
@@ -246,12 +245,14 @@ Example with extracted facts:
     "updated_facts": [],
     "contradicted_facts": []
 }}"""
+    )
 
     # =========================================================================
     # RETRIEVAL PROMPTS
     # =========================================================================
 
-    QUERY_ANALYSIS = """Analyze this query to determine the best retrieval strategy.
+    QUERY_ANALYSIS = (
+        """Analyze this query to determine the best retrieval strategy.
 
 QUERY: {query}
 
@@ -265,13 +266,12 @@ Determine:
 3. Key concepts to search for
 4. Any topic filters to apply
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for search_concepts and topic_filters if none
+"""
+        + JSON_OUTPUT_RULES
+        + """
 - Use empty strings "" in time_filter instead of null
 - Use "semantic" as default query_type if uncertain
 - Use "all_time" as default time_relevance if uncertain
-- All fields must be present
 
 Respond in this exact JSON format:
 {{
@@ -292,8 +292,10 @@ Example with values:
     "topic_filters": ["language_learning"],
     "reformulated_query": "Korean language learning progress and activities"
 }}"""
+    )
 
-    ANSWER_SYNTHESIS = """You are synthesizing an answer from retrieved memories.
+    ANSWER_SYNTHESIS = (
+        """You are synthesizing an answer from retrieved memories.
 
 ORIGINAL QUERY: {query}
 
@@ -320,12 +322,9 @@ Guidelines:
 - If there's a journey/progression, tell it chronologically
 - If contradictory information exists, acknowledge it
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for key_sources and gaps if none
-- Always provide an answer string (never null)
-- Use 0.5 as default confidence if uncertain
-- All fields must be present
+"""
+        + JSON_OUTPUT_RULES
+        + """
 
 Respond in this exact JSON format:
 {{
@@ -342,8 +341,10 @@ Example with content:
     "key_sources": ["Episode from Jan 15 about starting Duolingo", "Fact: User is learning Korean"],
     "gaps": ["No information about current proficiency level"]
 }}"""
+    )
 
-    NARRATIVE_SYNTHESIS = """You are reconstructing a narrative from episodic memories.
+    NARRATIVE_SYNTHESIS = (
+        """You are reconstructing a narrative from episodic memories.
 
 TOPIC/SUBJECT: {topic}
 QUERY: {query}
@@ -367,12 +368,11 @@ The narrative should:
 - Connect related events
 - Feel like recounting a memory, not reading a database
 
-CRITICAL JSON RULES:
-- Never return null for any field
-- Use empty arrays [] for timeline and key_moments if none
+"""
+        + JSON_OUTPUT_RULES
+        + """
 - Always provide narrative and current_status strings (never null)
 - Use empty string "" if current_status is unknown
-- All fields must be present
 
 Respond in this exact JSON format:
 {{
@@ -392,6 +392,7 @@ Example with content:
     "key_moments": ["Decision to learn Korean", "First successful conversation practice"],
     "current_status": "Actively learning, completing daily lessons"
 }}"""
+    )
 
     # =========================================================================
     # UTILITY METHODS

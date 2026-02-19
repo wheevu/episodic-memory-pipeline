@@ -4,7 +4,6 @@ Retrieval engine - unified interface for memory queries.
 Combines semantic and narrative retrieval with LLM-based answer synthesis.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
@@ -13,7 +12,7 @@ from ..embeddings import EmbeddingProvider
 from ..llm import LLMProvider
 from ..models import Episode, Fact, Summary
 from ..prompts import PromptTemplates
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 from .narrative import NarrativeResult, NarrativeRetriever
 from .semantic import SemanticResult, SemanticRetriever
 
@@ -53,24 +52,22 @@ class RetrievalEngine:
 
     def __init__(
         self,
-        database: Database,
-        vector_store: VectorStore,
+        lance_store: LanceStore,
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
     ) -> None:
         """Initialize the retrieval engine.
 
         Args:
-            database: Structured storage for episodes/facts/summaries.
-            vector_store: Vector index used by retrievers.
+            lance_store: Unified metadata and vector store.
             embedding_provider: Provider used to embed user queries.
             llm: Provider used for query analysis and answer synthesis.
         """
-        self.database = database
+        self.lance_store = lance_store
         self.llm = llm
 
-        self.semantic = SemanticRetriever(database, vector_store, embedding_provider)
-        self.narrative = NarrativeRetriever(database, vector_store, embedding_provider)
+        self.semantic = SemanticRetriever(lance_store, embedding_provider)
+        self.narrative = NarrativeRetriever(lance_store, embedding_provider)
 
     def query(
         self,
@@ -152,7 +149,7 @@ class RetrievalEngine:
             A dictionary describing query type, time/topic filters, and a reformulation.
         """
         # Get known topics for context
-        topics = self.database.get_topics()
+        topics = self.lance_store.get_topics()
         topic_names = [t["name"] for t in topics]
 
         prompt = PromptTemplates.QUERY_ANALYSIS.format(
@@ -162,9 +159,8 @@ class RetrievalEngine:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            return json.loads(response)
-        except (json.JSONDecodeError, Exception):
+            return self.llm.complete_json(prompt)
+        except (ValueError, Exception):
             # Default to semantic search
             return {
                 "query_type": "semantic",
@@ -255,9 +251,8 @@ class RetrievalEngine:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            return json.loads(response)
-        except (json.JSONDecodeError, Exception) as e:
+            return self.llm.complete_json(prompt)
+        except (ValueError, Exception) as e:
             return {
                 "answer": f"Retrieved {len(result.episodes)} episodes but couldn't synthesize answer: {e}",
                 "confidence": 0.3,
@@ -327,9 +322,8 @@ class RetrievalEngine:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            return json.loads(response)
-        except (json.JSONDecodeError, Exception):
+            return self.llm.complete_json(prompt)
+        except (ValueError, Exception):
             return {
                 "narrative": f"Found {len(result.episodes)} memories about {topic}.",
                 "timeline": [],
@@ -361,9 +355,9 @@ class RetrievalEngine:
         Returns:
             A dictionary containing recent episodes, facts, and the latest summary.
         """
-        episodes = self.database.get_episodes(topic=topic, limit=max_items)
-        facts = self.database.get_facts(topic=topic, limit=max_items)
-        summary = self.database.get_latest_summary(topic)
+        episodes = self.lance_store.get_episodes(topic=topic, limit=max_items)
+        facts = self.lance_store.get_facts(topic=topic, limit=max_items)
+        summary = self.lance_store.get_latest_summary(topic)
 
         return {
             "topic": topic,

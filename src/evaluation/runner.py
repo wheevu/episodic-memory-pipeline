@@ -17,7 +17,7 @@ from ..embeddings import EmbeddingProvider
 from ..ingestion import IngestionPipeline
 from ..llm import LLMProvider
 from ..retrieval import RetrievalEngine
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 from .metrics import (
     ConsolidationCompressionMetric,
     EvaluationMetrics,
@@ -272,29 +272,26 @@ class EvaluationRunner:
             # Create isolated environment
             temp_dir = Path(tempfile.mkdtemp(prefix=f"eval_{scenario.name}_"))
 
-            database = Database(temp_dir / "eval.db")
-            vector_store = VectorStore(
-                temp_dir / "eval.faiss", dimension=self.embedding_provider.dimension
+            lance_store = LanceStore(
+                temp_dir / "lancedb", embedding_dimension=self.embedding_provider.dimension
             )
 
             # Initialize pipelines
             ingestion = IngestionPipeline(
-                database,
-                vector_store,
+                lance_store,
                 self.embedding_provider,
                 self.llm,
                 worthiness_threshold=0.3,  # Lower threshold for eval
             )
 
             consolidation = ConsolidationPipeline(
-                database,
-                vector_store,
+                lance_store,
                 self.embedding_provider,
                 self.llm,
                 episode_threshold=3,  # Consolidate earlier for eval
             )
 
-            retrieval = RetrievalEngine(database, vector_store, self.embedding_provider, self.llm)
+            retrieval = RetrievalEngine(lance_store, self.embedding_provider, self.llm)
 
             # Step 1: Ingest episodes
             ingested_episodes = []
@@ -329,11 +326,11 @@ class EvaluationRunner:
             # Step 4: Compute metrics
             precision_result = self.precision_metric.evaluate_multiple(query_results)
 
-            all_facts = database.get_facts()
+            all_facts = lance_store.get_facts()
             conflict_result = self.conflict_metric.evaluate(all_facts)
 
-            all_episodes = database.get_episodes()
-            all_summaries = database.get_summaries()
+            all_episodes = lance_store.get_episodes()
+            all_summaries = lance_store.get_summaries()
             compression_result = self.compression_metric.evaluate(all_episodes, all_summaries)
 
             # Aggregate metrics

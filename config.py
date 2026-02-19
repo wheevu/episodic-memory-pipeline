@@ -21,13 +21,12 @@ class Config:
     # Paths
     base_path: Path = field(default_factory=lambda: Path(__file__).parent)
     database_path: Optional[Path] = field(default=None)
-    vector_index_path: Optional[Path] = field(default=None)
+    lance_db_path: Optional[Path] = field(default=None)
 
     # Embedding configuration (default: local with BGE-M3)
     embedding_provider: str = "local"  # "local", "openai", "ollama", or "mock"
     embedding_model: str = "BAAI/bge-m3"  # Default local model
     embedding_dimension: int = 1024  # BGE-M3 dimension
-    embedding_device: str = "cpu"  # "cpu", "cuda", "mps", or auto-detect
 
     # Ollama embeddings (alternative to local SentenceTransformers)
     ollama_embed_model: str = "nomic-embed-text"  # For EMBEDDING_PROVIDER=ollama
@@ -69,8 +68,8 @@ class Config:
         # Set default paths relative to base
         if self.database_path is None:
             self.database_path = self.base_path / "data" / "memory.db"
-        if self.vector_index_path is None:
-            self.vector_index_path = self.base_path / "data" / "vectors.faiss"
+        if self.lance_db_path is None:
+            self.lance_db_path = self.base_path / "data" / "lancedb"
 
         # Load from environment
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -80,12 +79,14 @@ class Config:
         # Embedding-specific configuration
         if embed_model := os.getenv("EMBEDDING_MODEL"):
             self.embedding_model = embed_model
-        if embed_device := os.getenv("EMBEDDING_DEVICE"):
-            self.embedding_device = embed_device
         if embed_dim := os.getenv("EMBEDDING_DIMENSION"):
             self.embedding_dimension = int(embed_dim)
         if ollama_embed := os.getenv("OLLAMA_EMBED_MODEL"):
             self.ollama_embed_model = ollama_embed
+
+        # LLM model override
+        if llm_model := os.getenv("LLM_MODEL"):
+            self.llm_model = llm_model
 
         # Ollama-specific configuration
         if ollama_model := os.getenv("OLLAMA_MODEL"):
@@ -97,8 +98,8 @@ class Config:
 
         if db_path := os.getenv("DATABASE_PATH"):
             self.database_path = Path(db_path)
-        if vec_path := os.getenv("VECTOR_INDEX_PATH"):
-            self.vector_index_path = Path(vec_path)
+        if lance_path := os.getenv("LANCE_DB_PATH"):
+            self.lance_db_path = Path(lance_path)
 
         # Update embedding dimension based on provider/model
         self._configure_embedding_dimension()
@@ -115,7 +116,7 @@ class Config:
 
         # Known model dimensions
         model_dimensions = {
-            # SentenceTransformers models
+            # FastEmbed-compatible local models
             "BAAI/bge-m3": 1024,
             "all-MiniLM-L6-v2": 384,
             "all-mpnet-base-v2": 768,
@@ -146,10 +147,10 @@ class Config:
             None.
         """
         try:
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.debug("Ensured directory exists: %s", self.database_path.parent)
+            self.lance_db_path.mkdir(parents=True, exist_ok=True)
+            logger.debug("Ensured directory exists: %s", self.lance_db_path)
         except Exception as e:
-            logger.warning("Failed to create directory %s: %s", self.database_path.parent, e)
+            logger.warning("Failed to create directory %s: %s", self.lance_db_path, e)
             raise
 
 

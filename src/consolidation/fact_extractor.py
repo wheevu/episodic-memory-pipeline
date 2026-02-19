@@ -5,7 +5,6 @@ Identifies and manages semantic memory (facts) derived from episodic memories.
 Handles fact lifecycle: creation, updates, contradictions.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -69,7 +68,7 @@ class FactExtractor:
             A `FactExtractionResult` containing new, updated, and contradicted facts.
 
         Raises:
-            json.JSONDecodeError: If the LLM returns invalid JSON (caught and handled).
+            ValueError: If the LLM returns invalid JSON (caught and handled).
             KeyError: If expected keys are missing in the response (caught and handled).
         """
         existing_facts = existing_facts or []
@@ -88,12 +87,11 @@ class FactExtractor:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            result = json.loads(response)
+            result = self.llm.complete_json(prompt)
 
             return self._process_extraction_result(result, topic, episodes, existing_facts)
 
-        except (json.JSONDecodeError, KeyError):
+        except (ValueError, KeyError):
             # Fallback: no facts extracted
             return FactExtractionResult(
                 new_facts=[],

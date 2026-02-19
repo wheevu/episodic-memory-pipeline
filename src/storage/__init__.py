@@ -1,6 +1,5 @@
 """Storage layer for the episodic memory pipeline."""
 
-from .database import Database
-from .vector_store import VectorStore
+from .lance_store import LanceStore
 
-__all__ = ["Database", "VectorStore"]
+__all__ = ["LanceStore"]

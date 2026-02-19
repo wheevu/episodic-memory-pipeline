@@ -87,8 +87,7 @@ class RetrievalService:
         """
         if self._engine is None:
             self._engine = self.components.RetrievalEngine(
-                self.components.database,
-                self.components.vector_store,
+                self.components.lance_store,
                 self.components.embedding_provider,
                 self.components.llm,
             )
@@ -103,8 +102,7 @@ class RetrievalService:
         """
         if self._consolidation is None:
             self._consolidation = self.components.ConsolidationPipeline(
-                self.components.database,
-                self.components.vector_store,
+                self.components.lance_store,
                 self.components.embedding_provider,
                 self.components.llm,
             )
@@ -187,18 +185,17 @@ class RetrievalService:
         Get system statistics.
 
         Returns:
-            SystemStats with database and vector store stats
+            SystemStats with unified storage stats
         """
-        db_stats = self.components.database.get_statistics()
-        vec_stats = self.components.vector_store.get_statistics()
+        store_stats = self.components.lance_store.get_statistics()
 
         return SystemStats(
-            total_episodes=db_stats["total_episodes"],
-            unconsolidated_episodes=db_stats["unconsolidated_episodes"],
-            total_facts=db_stats["total_facts"],
-            total_summaries=db_stats["total_summaries"],
-            total_topics=db_stats["total_topics"],
-            vector_stats=vec_stats,
+            total_episodes=store_stats["total_episodes"],
+            unconsolidated_episodes=store_stats["unconsolidated_episodes"],
+            total_facts=store_stats["total_facts"],
+            total_summaries=store_stats["total_summaries"],
+            total_topics=store_stats["total_topics"],
+            vector_stats={"backend": "lancedb"},
         )
 
     def get_topics(self, limit: int = 10) -> List[dict]:
@@ -211,5 +208,5 @@ class RetrievalService:
         Returns:
             List of topic dictionaries
         """
-        topics = self.components.database.get_topics()
+        topics = self.components.lance_store.get_topics()
         return topics[:limit] if topics else []

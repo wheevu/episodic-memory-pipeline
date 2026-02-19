@@ -5,7 +5,6 @@ Consolidates multiple episodes into coherent narrative summaries,
 preserving key events while reducing redundancy.
 """
 
-import json
 from dataclasses import dataclass
 from typing import Optional
 
@@ -97,8 +96,7 @@ class Summarizer:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            result = json.loads(response)
+            result = self.llm.complete_json(prompt)
 
             # Sanitize all LLM output fields using centralized helpers
             key_events = as_list(result.get("key_events"))[:5]  # Limit to 5
@@ -130,7 +128,7 @@ class Summarizer:
                 notable_changes=notable_changes,
             )
 
-        except (json.JSONDecodeError, KeyError):
+        except (ValueError, KeyError):
             # Fallback: create basic summary
             summary = Summary(
                 content=f"Summary of {len(episodes)} episodes about {topic} from {time_start.date()} to {time_end.date()}.",
@@ -233,8 +231,7 @@ Respond in JSON format:
 }}"""
 
         try:
-            response = self.llm.complete(prompt)
-            result = json.loads(response)
+            result = self.llm.complete_json(prompt)
 
             # Sanitize LLM output fields
             key_events = as_list(result.get("key_events"))
@@ -252,7 +249,7 @@ Respond in JSON format:
                 key_events=key_events,
                 summary_level=level,
             )
-        except (json.JSONDecodeError, KeyError):
+        except (ValueError, KeyError):
             return Summary(
                 content=f"Summary of {topic} from {time_start.date()} to {time_end.date()} covering {len(summaries)} periods.",
                 topic=topic,

@@ -6,7 +6,7 @@ Tests are organized into:
 1. Fast tests (no slow marker):
    - TestMockEmbeddingProvider: Mock provider tests (always pass)
    - TestFactoryFunction: Provider factory tests
-   - TestCosineSimWithFaiss: FAISS compatibility tests
+   - TestCosineSimilarity: Cosine similarity math tests
 
 2. Slow tests (@pytest.mark.slow):
    - TestLocalEmbeddingProvider: Real SentenceTransformers tests
@@ -18,9 +18,7 @@ Running tests:
    pytest tests/test_embeddings.py -m slow      # Slow tests only
 
 macOS Note:
-   On macOS, there's a known FAISS/SentenceTransformers cleanup conflict.
-   If you see segfaults at exit, this is expected and doesn't affect results.
-   The bootstrap module (src/bootstrap.py) handles this for CLI usage.
+   Slow tests may still download and initialize large local models.
 """
 
 import numpy as np
@@ -146,7 +144,7 @@ class TestLocalEmbeddingProvider:
             A `LocalEmbeddingProvider` using a small model for faster tests.
         """
         # Use smaller model for faster tests
-        return LocalEmbeddingProvider(model_name="all-MiniLM-L6-v2", device="cpu")
+        return LocalEmbeddingProvider(model_name="all-MiniLM-L6-v2")
 
     def test_embed_text_returns_normalized(self, provider: LocalEmbeddingProvider) -> None:
         """Local embeddings should be L2-normalized.
@@ -269,7 +267,7 @@ class TestBgeM3Provider:
             A `LocalEmbeddingProvider` using the BGE-M3 model.
         """
         try:
-            return LocalEmbeddingProvider(model_name="BAAI/bge-m3", device="cpu")
+            return LocalEmbeddingProvider(model_name="BAAI/bge-m3")
         except Exception as e:
             pytest.skip(f"BGE-M3 model not available: {e}")
 
@@ -352,11 +350,9 @@ class TestProviderSelection:
         assert emb_1024.shape == (1024,)
 
 
-class TestCosineSimWithFaiss:
+class TestCosineSimilarity:
     """
-    Test that embeddings work correctly with FAISS inner product search.
-
-    The memory pipeline uses IndexFlatIP for cosine similarity on normalized vectors.
+    Test cosine-similarity assumptions on normalized embeddings.
     """
 
     def test_normalized_embeddings_for_ip_search(self) -> None:

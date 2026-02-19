@@ -114,15 +114,7 @@ class TestBootstrapDemo:
         assert len(summary["errors"]) == 0, f"Errors: {summary['errors']}"
 
         # Check artifacts created
-        assert (temp_data_dir / "memory.db").exists(), "Database not created"
-
-        # Check for FAISS files
-        faiss_files = list(temp_data_dir.glob("*.faiss"))
-        assert len(faiss_files) > 0, "No FAISS index files created"
-
-        # Check for ID map files
-        npy_files = list(temp_data_dir.glob("*.npy"))
-        assert len(npy_files) > 0, "No ID map files created"
+        assert (temp_data_dir / "lancedb").exists(), "LanceDB directory not created"
 
     def test_bootstrap_dry_run_no_changes(self, temp_data_dir: Path, fixtures_path: Path) -> None:
         """Test that dry-run does not create any files.
@@ -148,8 +140,7 @@ class TestBootstrapDemo:
         assert summary["episodes_ingested"] > 0
 
         # But no files should be created
-        assert not (temp_data_dir / "memory.db").exists()
-        assert len(list(temp_data_dir.glob("*.faiss"))) == 0
+        assert not (temp_data_dir / "lancedb").exists()
 
     def test_bootstrap_clean_removes_existing(
         self, temp_data_dir: Path, fixtures_path: Path
@@ -171,13 +162,13 @@ class TestBootstrapDemo:
         )
 
         # Verify files exist
-        assert (temp_data_dir / "memory.db").exists()
+        assert (temp_data_dir / "lancedb").exists()
 
         # Clean
         clean_data_directory(temp_data_dir, dry_run=False, quiet=True)
 
         # Files should be removed
-        assert not (temp_data_dir / "memory.db").exists()
+        assert not (temp_data_dir / "lancedb").exists()
 
 
 class TestDoctorCommand:

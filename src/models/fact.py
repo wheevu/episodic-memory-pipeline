@@ -36,8 +36,8 @@ class Fact(BaseModel):
     """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Content
     content: str  # The factual statement
@@ -55,9 +55,6 @@ class Fact(BaseModel):
     # State
     is_active: bool = True
     superseded_by: Optional[str] = None  # ID of newer fact
-
-    # Vector storage reference
-    embedding_id: Optional[int] = None
 
     # Provenance (populated on retrieval)
     source_episode_ids: list[str] = Field(default_factory=list)
@@ -91,72 +88,3 @@ class Fact(BaseModel):
         parts.append(f"Category: {self.category}")
         parts.append(f"Topic: {self.topic}")
         return " | ".join(parts)
-
-    def to_db_row(self) -> dict:
-        """Convert the fact to a database row dictionary.
-
-        Returns:
-            A dictionary suitable for parameterized SQL insertion/update.
-        """
-        import json
-
-        return {
-            "id": self.id,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "content": self.content,
-            "category": self.category,
-            "topic": self.topic,
-            "entities": json.dumps(self.entities),
-            "confidence": self.confidence,
-            "valid_from": self.valid_from.isoformat() if self.valid_from else None,
-            "valid_until": self.valid_until.isoformat() if self.valid_until else None,
-            "is_active": self.is_active,
-            "superseded_by": self.superseded_by,
-            "embedding_id": self.embedding_id,
-        }
-
-    @classmethod
-    def from_db_row(cls, row: dict) -> "Fact":
-        """Create a `Fact` from a database row dictionary.
-
-        Args:
-            row: Database row mapping (dict or dict-like) containing fact fields.
-
-        Returns:
-            A populated `Fact` instance.
-        """
-        import json
-
-        def parse_datetime(val: Optional[object]) -> Optional[datetime]:
-            """Parse a database datetime field into a `datetime` instance.
-
-            Args:
-                val: Value from the database row; may be None, a datetime, or ISO string.
-
-            Returns:
-                A `datetime` if parsable; otherwise None.
-            """
-            if val is None:
-                return None
-            if isinstance(val, datetime):
-                return val
-            return datetime.fromisoformat(val)
-
-        return cls(
-            id=row["id"],
-            created_at=parse_datetime(row["created_at"]) or datetime.now(timezone.utc),
-            updated_at=parse_datetime(row["updated_at"]) or datetime.now(timezone.utc),
-            content=row["content"],
-            category=FactCategory(row["category"]),
-            topic=row["topic"],
-            entities=json.loads(row["entities"])
-            if isinstance(row["entities"], str)
-            else row["entities"],
-            confidence=row["confidence"],
-            valid_from=parse_datetime(row.get("valid_from")),
-            valid_until=parse_datetime(row.get("valid_until")),
-            is_active=bool(row["is_active"]),
-            superseded_by=row.get("superseded_by"),
-            embedding_id=row.get("embedding_id"),
-        )

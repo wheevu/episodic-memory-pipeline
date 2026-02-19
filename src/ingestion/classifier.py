@@ -5,7 +5,6 @@ Determines whether input text contains information worth storing as memory.
 This is a crucial gate to prevent memory bloat and noise.
 """
 
-import json
 from dataclasses import dataclass
 from typing import Optional, cast
 
@@ -170,8 +169,7 @@ class MemoryWorthinessClassifier:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            result = json.loads(response)
+            result = self.llm.complete_json(prompt)
 
             # Sanitize all LLM output fields using centralized helpers
             is_worthy = as_bool(result.get("is_memory_worthy"), default=False)
@@ -187,7 +185,7 @@ class MemoryWorthinessClassifier:
                 reason=reason,
                 memory_type=memory_type,
             )
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (ValueError, KeyError, TypeError) as e:
             # If LLM response is malformed, be conservative
             return ClassificationResult(
                 is_memory_worthy=False,

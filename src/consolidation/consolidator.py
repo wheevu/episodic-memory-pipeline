@@ -17,7 +17,7 @@ from uuid import uuid4
 from ..embeddings import EmbeddingProvider
 from ..llm import LLMProvider
 from ..models import Summary
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 from .fact_extractor import FactExtractor
 from .summarizer import Summarizer
 
@@ -72,8 +72,7 @@ class ConsolidationPipeline:
 
     def __init__(
         self,
-        database: Database,
-        vector_store: VectorStore,
+        lance_store: LanceStore,
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
         episode_threshold: int = 5,
@@ -82,15 +81,13 @@ class ConsolidationPipeline:
         """Initialize the consolidation pipeline.
 
         Args:
-            database: Structured storage for episodes/facts/summaries.
-            vector_store: Vector index used to store summary/fact embeddings.
+            lance_store: Unified metadata and vector store.
             embedding_provider: Provider used to embed summaries and facts.
             llm: Provider used for summarization and fact extraction.
             episode_threshold: Minimum unconsolidated episode count to trigger consolidation.
             age_threshold_days: Maximum days since last consolidation before triggering.
         """
-        self.database = database
-        self.vector_store = vector_store
+        self.lance_store = lance_store
         self.embedding_provider = embedding_provider
         self.summarizer = Summarizer(llm)
         self.fact_extractor = FactExtractor(llm)
@@ -110,7 +107,7 @@ class ConsolidationPipeline:
         start_time = datetime.now(timezone.utc)
 
         # Get unconsolidated episodes for this topic
-        episodes = self.database.get_unconsolidated_episodes(topic=topic)
+        episodes = self.lance_store.get_unconsolidated_episodes(topic=topic)
 
         if not episodes:
             return ConsolidationResult(
@@ -125,7 +122,7 @@ class ConsolidationPipeline:
             )
 
         # Get existing facts for comparison
-        existing_facts = self.database.get_facts(topic=topic)
+        existing_facts = self.lance_store.get_facts(topic=topic)
 
         # Generate summary
         summary_result = self.summarizer.summarize(episodes, topic)
@@ -133,16 +130,9 @@ class ConsolidationPipeline:
 
         # Embed and store summary
         summary_embedding = self.embedding_provider.embed_text(summary.to_embedding_text())
-        self.database.save_summary(
-            summary,
-            source_episode_ids=[ep.id for ep in episodes],
-            key_episode_ids=summary_result.key_episode_ids,
+        self.lance_store.save_summary(
+            summary, summary_embedding, source_episode_ids=[ep.id for ep in episodes]
         )
-        try:
-            embedding_id = self.vector_store.add("summaries", summary.id, summary_embedding)
-            self.database.update_embedding_id("summaries", summary.id, embedding_id)
-        except Exception as exc:
-            logger.warning("Failed to index summary %s: %s", summary.id, exc)
 
         # Extract facts
         fact_result = self.fact_extractor.extract_facts(episodes, topic, existing_facts)
@@ -150,51 +140,27 @@ class ConsolidationPipeline:
         # Store new facts
         for fact in fact_result.new_facts:
             fact_embedding = self.embedding_provider.embed_text(fact.to_embedding_text())
-            self.database.save_fact(fact, source_episode_ids=fact_result.source_episode_ids)
-            try:
-                embedding_id = self.vector_store.add("facts", fact.id, fact_embedding)
-                self.database.update_embedding_id("facts", fact.id, embedding_id)
-            except Exception as exc:
-                # Deactivate the fact so it doesn't appear in DB-only queries
-                # while being invisible to vector search.
-                logger.warning(
-                    "Failed to index new fact %s; deactivating: %s",
-                    fact.id[:8],
-                    exc,
-                )
-                self.database.set_fact_active(fact.id, False)
+            self.lance_store.save_fact(
+                fact, fact_embedding, source_episode_ids=fact_result.source_episode_ids
+            )
 
         # Handle updated facts
         for old_id, new_fact in fact_result.updated_facts:
             fact_embedding = self.embedding_provider.embed_text(new_fact.to_embedding_text())
-            self.database.save_fact(new_fact, source_episode_ids=fact_result.source_episode_ids)
-            try:
-                embedding_id = self.vector_store.add("facts", new_fact.id, fact_embedding)
-                self.database.update_embedding_id("facts", new_fact.id, embedding_id)
-            except Exception as exc:
-                # If vector indexing fails, do NOT supersede the old fact — the
-                # replacement would be unsearchable, effectively losing data.
-                # The new fact is saved to DB (for retry) but the old one stays active.
-                logger.warning(
-                    "Failed to index updated fact %s; old fact %s remains active: %s",
-                    new_fact.id,
-                    old_id[:8],
-                    exc,
-                )
-                continue
-
-            self.database.supersede_fact(old_id, new_fact)
+            self.lance_store.save_fact(
+                new_fact,
+                fact_embedding,
+                source_episode_ids=fact_result.source_episode_ids,
+            )
+            self.lance_store.supersede_fact(old_id, new_fact)
 
         # Handle contradicted facts (deactivate so they no longer appear in retrieval)
         for fact_id in fact_result.contradicted_fact_ids:
-            self.database.set_fact_active(fact_id, False)
+            self.lance_store.set_fact_active(fact_id, False)
             logger.info("Deactivated contradicted fact: %s", fact_id[:8])
 
         # Mark episodes as consolidated
-        self.database.mark_episodes_consolidated([ep.id for ep in episodes])
-
-        # Save vector store
-        self.vector_store.save()
+        self.lance_store.mark_episodes_consolidated([ep.id for ep in episodes])
 
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
@@ -215,7 +181,7 @@ class ConsolidationPipeline:
         Returns:
             A list of `ConsolidationResult`, one per consolidated topic.
         """
-        topics = self.database.get_topics_needing_consolidation(
+        topics = self.lance_store.get_topics_needing_consolidation(
             min_episodes=self.episode_threshold, max_age_days=self.age_threshold_days
         )
 
@@ -236,10 +202,10 @@ class ConsolidationPipeline:
             True if consolidation is needed.
         """
         if topic:
-            episodes = self.database.get_unconsolidated_episodes(topic=topic)
+            episodes = self.lance_store.get_unconsolidated_episodes(topic=topic)
             return len(episodes) >= self.episode_threshold
         else:
-            topics = self.database.get_topics_needing_consolidation(
+            topics = self.lance_store.get_topics_needing_consolidation(
                 min_episodes=self.episode_threshold, max_age_days=self.age_threshold_days
             )
             return len(topics) > 0
@@ -254,7 +220,7 @@ class ConsolidationPipeline:
             A `Summary` if there are recent episodes; otherwise None.
         """
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-        episodes = self.database.get_episodes(topic=topic, since=week_ago, limit=100)
+        episodes = self.lance_store.get_episodes(topic=topic, since=week_ago, limit=100)
 
         if not episodes:
             return None
@@ -274,7 +240,7 @@ class ConsolidationPipeline:
             A higher-level `Summary` if enough weekly summaries exist; otherwise None.
         """
         month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        weekly_summaries = self.database.get_summaries(topic=topic, level=1, since=month_ago)
+        weekly_summaries = self.lance_store.get_summaries(topic=topic, level=1, since=month_ago)
 
         if len(weekly_summaries) < 2:
             return None

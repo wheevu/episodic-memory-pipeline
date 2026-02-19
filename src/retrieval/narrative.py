@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..embeddings import EmbeddingProvider
 from ..models import Episode, Fact, Summary
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 
 
 @dataclass
@@ -46,21 +46,18 @@ class NarrativeRetriever:
 
     def __init__(
         self,
-        database: Database,
-        vector_store: VectorStore,
+        lance_store: LanceStore,
         embedding_provider: EmbeddingProvider,
         max_episodes: int = 50,
     ) -> None:
         """Initialize the narrative retriever.
 
         Args:
-            database: Structured storage used to fetch episodes/facts/summaries.
-            vector_store: Vector index used for semantic matching.
+            lance_store: Unified metadata and vector store.
             embedding_provider: Provider used to embed free-form queries.
             max_episodes: Maximum episodes to include in a narrative timeline.
         """
-        self.database = database
-        self.vector_store = vector_store
+        self.lance_store = lance_store
         self.embedding_provider = embedding_provider
         self.max_episodes = max_episodes
 
@@ -85,7 +82,7 @@ class NarrativeRetriever:
             A `NarrativeResult` with chronologically ordered memories.
         """
         # Get episodes for topic, ordered by time
-        episodes = self.database.get_episodes(
+        episodes = self.lance_store.get_episodes(
             topic=topic, since=since, until=until, limit=self.max_episodes
         )
 
@@ -100,13 +97,13 @@ class NarrativeRetriever:
         # Get summaries
         summaries = []
         if include_summaries:
-            summaries = self.database.get_summaries(topic=topic, since=since)
+            summaries = self.lance_store.get_summaries(topic=topic, since=since)
             summaries = sorted(summaries, key=lambda s: s.time_start)
 
         # Get facts
         facts = []
         if include_facts:
-            facts = self.database.get_facts(topic=topic)
+            facts = self.lance_store.get_facts(topic=topic)
 
         return NarrativeResult(
             episodes=episodes, facts=facts, summaries=summaries, topic=topic, time_span=time_span
@@ -135,14 +132,17 @@ class NarrativeRetriever:
         query_embedding = self.embedding_provider.embed_text(query)
 
         # Search episodes
-        results = self.vector_store.search("episodes", query_embedding, k=20, threshold=0.6)
+        results = self.lance_store.search(
+            "episodes", query_embedding, k=20, where="is_active = true"
+        )
+        results = [(record_id, score) for record_id, score in results if score >= 0.6]
 
         if not results:
             return NarrativeResult(episodes=[], facts=[], summaries=[], topic=None, time_span=None)
 
         # Batch-fetch episodes and filter out missing/inactive
         episode_ids = [rid for rid, _ in results]
-        episodes_map = self.database.get_episodes_by_ids(episode_ids)
+        episodes_map = self.lance_store.get_episodes_by_ids(episode_ids)
         episodes = [
             episodes_map[eid]
             for eid in episode_ids
@@ -163,7 +163,7 @@ class NarrativeRetriever:
         # If we have a clear topic, expand to full narrative
         if primary_topic and topic_counts[primary_topic] >= 2:
             # Get more episodes for this topic
-            full_episodes = self.database.get_episodes(
+            full_episodes = self.lance_store.get_episodes(
                 topic=primary_topic, since=since, until=until, limit=self.max_episodes
             )
             episodes = sorted(full_episodes, key=lambda e: e.occurred_at)
@@ -175,9 +175,9 @@ class NarrativeRetriever:
         summaries = []
         facts = []
         if primary_topic:
-            summaries = self.database.get_summaries(topic=primary_topic, since=since)
+            summaries = self.lance_store.get_summaries(topic=primary_topic, since=since)
             summaries = sorted(summaries, key=lambda s: s.time_start)
-            facts = self.database.get_facts(topic=primary_topic)
+            facts = self.lance_store.get_facts(topic=primary_topic)
 
         time_span = None
         if episodes:
@@ -226,14 +226,14 @@ class NarrativeRetriever:
             A list of episodes ordered by descending importance.
         """
         # Get summaries to find key events
-        summaries = self.database.get_summaries(topic=topic)
+        summaries = self.lance_store.get_summaries(topic=topic)
 
         key_episode_ids = set()
         for summary in summaries:
             key_episode_ids.update(summary.source_episode_ids)
 
         # Get episodes and sort by importance
-        episodes = self.database.get_episodes(topic=topic, limit=100)
+        episodes = self.lance_store.get_episodes(topic=topic, limit=100)
 
         # Boost episodes that are in key_events
         def score(ep: Episode) -> float:
@@ -260,7 +260,7 @@ class NarrativeRetriever:
         Returns:
             A list of timeline buckets, each containing a period label and events.
         """
-        episodes = self.database.get_episodes(topic=topic, limit=200)
+        episodes = self.lance_store.get_episodes(topic=topic, limit=200)
         episodes = sorted(episodes, key=lambda e: e.occurred_at)
 
         if not episodes:

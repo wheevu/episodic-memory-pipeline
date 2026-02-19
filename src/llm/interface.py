@@ -5,9 +5,12 @@ Unified interface for LLM completions supporting OpenAI, Ollama, and mock provid
 """
 
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class LLMProvider(ABC):
@@ -48,9 +51,15 @@ class LLMProvider(ABC):
         Raises:
             ValueError: If JSON cannot be extracted from the completion.
         """
-        response = self.complete(prompt, temperature)
-        # Try to extract JSON from response
-        return self._extract_json(response)
+        for attempt in range(3):
+            response = self.complete(prompt, temperature)
+            try:
+                return self._extract_json(response)
+            except ValueError as exc:
+                if attempt == 2:
+                    raise
+                logger.warning("JSON extraction failed (attempt %d/3): %s", attempt + 1, exc)
+        raise RuntimeError("unreachable")
 
     def _extract_json(self, text: str) -> dict[str, Any]:
         """Extract a JSON object from text that may include extra formatting.
@@ -64,10 +73,6 @@ class LLMProvider(ABC):
         Raises:
             ValueError: If JSON cannot be extracted/parsed from the text.
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         # Try direct parse first
         try:
             return json.loads(text)

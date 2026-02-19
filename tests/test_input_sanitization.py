@@ -12,7 +12,7 @@ from config import Config
 from src.embeddings import get_embedding_provider
 from src.ingestion import IngestionPipeline
 from src.llm import get_llm_provider
-from src.storage import Database, VectorStore
+from src.storage import LanceStore
 from src.utils import sanitize_entities, sanitize_topics
 
 
@@ -28,8 +28,7 @@ def temp_dir() -> Path:
 def test_config(temp_dir: Path) -> Config:
     """Create a test configuration."""
     config = Config()
-    config.database_path = temp_dir / "test.db"
-    config.vector_index_path = temp_dir / "test.faiss"
+    config.lance_db_path = temp_dir / "lancedb"
     config.embedding_dimension = 384
     return config
 
@@ -37,14 +36,12 @@ def test_config(temp_dir: Path) -> Config:
 @pytest.fixture
 def pipeline(test_config: Config) -> IngestionPipeline:
     """Create a test pipeline with mock providers."""
-    database = Database(test_config.database_path)
-    vector_store = VectorStore(test_config.vector_index_path, dimension=384)
+    lance_store = LanceStore(test_config.lance_db_path, embedding_dimension=384)
     embedding_provider = get_embedding_provider("mock", dimension=384)
     llm = get_llm_provider("mock")
 
     return IngestionPipeline(
-        database=database,
-        vector_store=vector_store,
+        lance_store=lance_store,
         embedding_provider=embedding_provider,
         llm=llm,
     )

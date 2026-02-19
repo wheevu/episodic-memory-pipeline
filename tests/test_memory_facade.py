@@ -13,9 +13,6 @@ import pytest
 
 from config import Config
 
-# Mark all tests in this module as requiring FAISS
-pytestmark = pytest.mark.requires_faiss
-
 
 @pytest.fixture
 def temp_dir():
@@ -29,8 +26,7 @@ def temp_dir():
 def test_config(temp_dir):
     """Create a Config pointing at the temp directory with mock providers."""
     cfg = Config()
-    cfg.database_path = temp_dir / "test.db"
-    cfg.vector_index_path = temp_dir / "test.faiss"
+    cfg.lance_db_path = temp_dir / "lancedb"
     cfg.embedding_provider = "mock"
     cfg.embedding_dimension = 384
     return cfg
@@ -294,8 +290,8 @@ class TestIntrospection:
         """stats() returns a dict with sub-dicts."""
         s = mem.stats()
         assert isinstance(s, dict)
-        assert "database" in s
-        assert "vector_store" in s
+        assert "total_episodes" in s
+        assert "total_topics" in s
 
     def test_topics_empty(self, mem):
         """topics() on empty system returns empty list."""
@@ -320,7 +316,7 @@ class TestEscapeHatches:
     """Test direct access to underlying components."""
 
     def test_database_access(self, mem):
-        """database property returns the live Database instance."""
+        """database property returns the live storage instance."""
         db = mem.database
         assert db is not None
         # Should be able to call get_statistics
@@ -328,7 +324,7 @@ class TestEscapeHatches:
         assert isinstance(stats, dict)
 
     def test_vector_store_access(self, mem):
-        """vector_store property returns the live VectorStore instance."""
+        """vector_store property returns the live storage instance alias."""
         vs = mem.vector_store
         assert vs is not None
         stats = vs.get_statistics()

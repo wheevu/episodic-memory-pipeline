@@ -2,11 +2,10 @@
 Embedding provider abstraction.
 
 This module provides a unified interface for generating embeddings,
-supporting multiple backends (OpenAI, local sentence-transformers, Ollama).
+supporting multiple backends (OpenAI, local FastEmbed ONNX, Ollama).
 
 Default Configuration:
-- Provider: local (SentenceTransformers with BAAI/bge-m3)
-- Device: auto-detect (CPU, MPS on Mac, CUDA if available)
+- Provider: local (FastEmbed with BAAI/bge-m3)
 - All embeddings are L2-normalized for cosine similarity via inner product
 """
 
@@ -16,6 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 import numpy as np
+from fastembed import TextEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -266,13 +266,12 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
 class LocalEmbeddingProvider(EmbeddingProvider):
     """
-    Local embedding provider using sentence-transformers.
+    Local embedding provider using FastEmbed (ONNX).
 
     Default model: BAAI/bge-m3 (excellent multilingual embeddings)
 
     Features:
-    - Automatic device selection (CPU, MPS, CUDA)
-    - L2-normalized output for cosine similarity
+    - Fast local inference via ONNX runtimes
     - Deterministic embeddings
     """
 
@@ -280,63 +279,39 @@ class LocalEmbeddingProvider(EmbeddingProvider):
     DEFAULT_MODEL = "BAAI/bge-m3"
 
     def __init__(
-        self, model_name: Optional[str] = None, device: Optional[str] = None, normalize: bool = True
+        self,
+        model_name: Optional[str] = None,
+        dimension: Optional[int] = None,
+        normalize: bool = True,
     ) -> None:
-        """Initialize the local sentence-transformers embedding provider.
+        """Initialize the local FastEmbed embedding provider.
 
         Args:
-            model_name: Sentence-transformers model name (default: BAAI/bge-m3).
-            device: Device to run on ("cpu", "cuda", "mps", or None for auto).
+            model_name: FastEmbed model name (default: BAAI/bge-m3).
+            dimension: Embedding dimension override (auto-detected if not set).
             normalize: Whether to L2-normalize embeddings.
 
         Raises:
-            ImportError: If `sentence-transformers` is not installed.
+            RuntimeError: If dimension detection fails.
         """
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as err:
-            raise ImportError(
-                "sentence-transformers package required. "
-                "Install with: pip install sentence-transformers"
-            ) from err
-
         # Use environment variable or default
         model_name = model_name or os.getenv("EMBEDDING_MODEL", self.DEFAULT_MODEL)
-        device = device or os.getenv("EMBEDDING_DEVICE", None)
-
-        # Auto-detect device if not specified
-        if device is None:
-            device = self._detect_device()
 
         self._model_name = model_name
-        self._device = device
         self._normalize = normalize
 
-        logger.info(f"Loading embedding model '{model_name}' on device '{device}'")
+        logger.info("Loading FastEmbed model '%s'", model_name)
 
-        # Load model with specified device
-        self._model = SentenceTransformer(model_name, device=device)
-        self._dimension = self._model.get_sentence_embedding_dimension()
+        self._model = TextEmbedding(model_name=model_name)
+        if dimension is not None:
+            self._dimension = dimension
+        else:
+            sample = list(self._model.embed(["dimension probe"]))
+            if not sample:
+                raise RuntimeError("Could not detect embedding dimension from FastEmbed model")
+            self._dimension = len(sample[0])
 
-        logger.info(f"Embedding model loaded: dimension={self._dimension}")
-
-    @staticmethod
-    def _detect_device() -> str:
-        """Auto-detect the best available compute device.
-
-        Returns:
-            "cuda" if available, else "mps" (Apple Silicon), else "cpu".
-        """
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                return "cuda"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                return "mps"
-        except ImportError:
-            pass
-        return "cpu"
+        logger.info("FastEmbed model loaded: dimension=%d", self._dimension)
 
     @property
     def dimension(self) -> int:
@@ -357,7 +332,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         return f"LocalEmbedding({self._model_name})"
 
     def embed_text(self, text: str) -> np.ndarray:
-        """Generate an embedding using the local model.
+        """Generate an embedding using the local FastEmbed model.
 
         Args:
             text: Input text to embed.
@@ -365,14 +340,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         Returns:
             Embedding vector as `np.float32`.
         """
-        embedding = self._model.encode(
-            text, convert_to_numpy=True, normalize_embeddings=self._normalize
-        )
-        embedding = embedding.astype(np.float32)
-
-        # Ensure normalized even if model doesn't do it
-        if self._normalize:
-            embedding = _normalize_l2(embedding)
+        embedding = next(iter(self._model.embed([text]))).astype(np.float32)
 
         return embedding
 
@@ -388,17 +356,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
 
-        embeddings = self._model.encode(
-            texts,
-            convert_to_numpy=True,
-            normalize_embeddings=self._normalize,
-            show_progress_bar=len(texts) > 10,
-        )
-        embeddings = embeddings.astype(np.float32)
-
-        # Ensure normalized even if model doesn't do it
-        if self._normalize:
-            embeddings = _normalize_l2(embeddings)
+        embeddings = np.vstack(list(self._model.embed(texts))).astype(np.float32)
 
         return embeddings
 
@@ -666,7 +624,6 @@ def get_embedding_provider(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     dimension: Optional[int] = None,
-    device: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> EmbeddingProvider:
     """Factory to create an `EmbeddingProvider` implementation.
@@ -676,7 +633,6 @@ def get_embedding_provider(
         api_key: API key (required for OpenAI).
         model: Model name (optional; uses provider defaults).
         dimension: Embedding dimension (optional; auto-detected for most providers).
-        device: Device for local provider ("cpu", "cuda", "mps", or None for auto).
         base_url: Base URL for Ollama provider.
 
     Returns:
@@ -688,7 +644,6 @@ def get_embedding_provider(
     Environment variables:
         EMBEDDING_PROVIDER: Default provider selection.
         EMBEDDING_MODEL: Default model name.
-        EMBEDDING_DEVICE: Device for local embeddings.
         OLLAMA_BASE_URL: Ollama server URL.
         OLLAMA_EMBED_MODEL: Ollama embedding model.
     """
@@ -702,11 +657,7 @@ def get_embedding_provider(
             api_key=api_key, model=model or "text-embedding-3-small", dimension=dimension or 1536
         )
     elif provider == "local":
-        return LocalEmbeddingProvider(
-            model_name=model,  # Will use default if None
-            device=device,
-            normalize=True,
-        )
+        return LocalEmbeddingProvider(model_name=model, dimension=dimension, normalize=True)
     elif provider == "ollama":
         return OllamaEmbeddingProvider(model=model, base_url=base_url, dimension=dimension)
     elif provider == "mock":

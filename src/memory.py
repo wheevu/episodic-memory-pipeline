@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from config import Config
     from src.consolidation.consolidator import ConsolidationResult
     from src.ingestion.pipeline import IngestionResult
-    from src.models import Episode, Fact
+    from src.models import Fact
     from src.retrieval.engine import QueryResult
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 class MemorySystem:
     """High-level facade over the episodic-memory pipeline.
 
-    Encapsulates bootstrap wiring, import ordering (FAISS/SentenceTransformers),
+    Encapsulates bootstrap wiring,
     and pipeline construction so that agent code only needs a single object.
 
     All heavy initialisation (model loading, DB/vector-store creation) happens
@@ -99,7 +99,7 @@ class MemorySystem:
             self._ensure_components()
 
     # ------------------------------------------------------------------
-    # Lazy wiring (respects FAISS import ordering via bootstrap)
+    # Lazy wiring
     # ------------------------------------------------------------------
 
     def _ensure_components(self) -> None:
@@ -127,8 +127,7 @@ class MemorySystem:
 
             cfg = self._config or default_config
             self._ingestion = c.IngestionPipeline(
-                c.database,
-                c.vector_store,
+                c.lance_store,
                 c.embedding_provider,
                 c.llm,
                 worthiness_threshold=cfg.memory_worthiness_threshold,
@@ -145,8 +144,7 @@ class MemorySystem:
 
             cfg = self._config or default_config
             self._consolidation = c.ConsolidationPipeline(
-                c.database,
-                c.vector_store,
+                c.lance_store,
                 c.embedding_provider,
                 c.llm,
                 episode_threshold=cfg.consolidation_episode_threshold,
@@ -161,8 +159,7 @@ class MemorySystem:
             self._ensure_components()
             c = self._components
             self._retrieval = c.RetrievalEngine(
-                c.database,
-                c.vector_store,
+                c.lance_store,
                 c.embedding_provider,
                 c.llm,
             )
@@ -170,23 +167,23 @@ class MemorySystem:
 
     @property
     def database(self):
-        """Direct access to the ``Database`` instance (escape hatch).
+        """Direct access to the underlying storage instance.
 
         Returns:
-            The active ``Database`` instance.
+            The active `LanceStore` instance.
         """
         self._ensure_components()
-        return self._components.database
+        return self._components.lance_store
 
     @property
     def vector_store(self):
-        """Direct access to the ``VectorStore`` instance (escape hatch).
+        """Backward-compatible alias for the underlying storage instance.
 
         Returns:
-            The active ``VectorStore`` instance.
+            The active `LanceStore` instance.
         """
         self._ensure_components()
-        return self._components.vector_store
+        return self._components.lance_store
 
     # ------------------------------------------------------------------
     # remember — store a new memory
@@ -394,7 +391,7 @@ class MemorySystem:
             raise ValueError("Provide exactly one of episode_id or fact_id")
 
         self._ensure_components()
-        db = self._components.database
+        db = self._components.lance_store
 
         if episode_id is not None:
             episode = db.get_episode(episode_id)
@@ -419,10 +416,10 @@ class MemorySystem:
     # ------------------------------------------------------------------
 
     def stats(self) -> dict:
-        """Return database and vector-store statistics.
+        """Return storage statistics.
 
         Returns:
-            A dictionary with ``database`` and ``vector_store`` sub-dicts.
+            A dictionary with storage stats.
         """
         return self._ingestion_pipeline.get_statistics()
 
@@ -433,7 +430,7 @@ class MemorySystem:
             A list of topic info dicts (``name``, ``episode_count``, etc.).
         """
         self._ensure_components()
-        return self._components.database.get_topics()
+        return self._components.lance_store.get_topics()
 
     # ------------------------------------------------------------------
     # Dunder helpers

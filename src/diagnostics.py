@@ -44,7 +44,6 @@ class ConfigDiagnostics:
     # Environment variables
     env_embedding_provider: Optional[str]
     env_embedding_model: Optional[str]
-    env_embedding_device: Optional[str]
     env_embedding_dimension: Optional[str]
     env_llm_provider: Optional[str]
     env_ollama_model: Optional[str]
@@ -55,7 +54,6 @@ class ConfigDiagnostics:
     # Resolved config values
     resolved_embedding_provider: str
     resolved_embedding_model: str
-    resolved_embedding_device: str
     resolved_embedding_dimension: int
     resolved_llm_provider: str
     resolved_llm_model: str
@@ -93,7 +91,6 @@ def get_config_diagnostics(config: Config, force_mock: bool = False) -> ConfigDi
     # Read raw environment variables
     env_embedding_provider = os.getenv("EMBEDDING_PROVIDER")
     env_embedding_model = os.getenv("EMBEDDING_MODEL")
-    env_embedding_device = os.getenv("EMBEDDING_DEVICE")
     env_embedding_dimension = os.getenv("EMBEDDING_DIMENSION")
     env_llm_provider = os.getenv("LLM_PROVIDER")
     env_ollama_model = os.getenv("OLLAMA_MODEL")
@@ -104,7 +101,6 @@ def get_config_diagnostics(config: Config, force_mock: bool = False) -> ConfigDi
     # Determine resolved values (what config actually uses)
     resolved_embedding_provider = config.embedding_provider
     resolved_embedding_model = config.embedding_model
-    resolved_embedding_device = config.embedding_device
     resolved_embedding_dimension = config.embedding_dimension
     resolved_llm_provider = config.llm_provider
     resolved_llm_temperature = config.llm_temperature
@@ -131,7 +127,6 @@ def get_config_diagnostics(config: Config, force_mock: bool = False) -> ConfigDi
     return ConfigDiagnostics(
         env_embedding_provider=env_embedding_provider,
         env_embedding_model=env_embedding_model,
-        env_embedding_device=env_embedding_device,
         env_embedding_dimension=env_embedding_dimension,
         env_llm_provider=env_llm_provider,
         env_ollama_model=env_ollama_model,
@@ -140,7 +135,6 @@ def get_config_diagnostics(config: Config, force_mock: bool = False) -> ConfigDi
         env_tokenizers_parallelism=env_tokenizers_parallelism,
         resolved_embedding_provider=resolved_embedding_provider,
         resolved_embedding_model=resolved_embedding_model,
-        resolved_embedding_device=resolved_embedding_device,
         resolved_embedding_dimension=resolved_embedding_dimension,
         resolved_llm_provider=resolved_llm_provider,
         resolved_llm_model=resolved_llm_model,
@@ -235,7 +229,7 @@ def describe_embedding_provider(emb: Any, config: Config) -> ProviderInfo:
             info.model = model_attr.name_or_path or config.embedding_model
         else:
             info.model = config.embedding_model
-        info.device = config.embedding_device
+        info.device = "N/A"
     elif isinstance(emb, OllamaEmbeddingProvider):
         info.type = "ollama"
         info.model = getattr(emb, "_model", config.ollama_embed_model)
@@ -294,12 +288,9 @@ def generate_fix_suggestions(
 
     # Generate embedding fix suggestions
     if is_mock_embeddings:
-        suggestions.append("# Fix mock embeddings - use local SentenceTransformers:")
+        suggestions.append("# Fix mock embeddings - use local FastEmbed:")
         suggestions.append("export EMBEDDING_PROVIDER=local")
         suggestions.append("export EMBEDDING_MODEL=BAAI/bge-m3")
-        suggestions.append(
-            "export EMBEDDING_DEVICE=cpu  # or 'mps' for Apple Silicon, 'cuda' for NVIDIA"
-        )
         suggestions.append("")
 
     # Generate LLM fix suggestions

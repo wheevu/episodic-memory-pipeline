@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     {name = "Episodic Memory Contributors"}
 ]
-keywords = ["memory", "rag", "faiss", "embeddings", "llm", "ai"]
+keywords = ["memory", "rag", "lancedb", "embeddings", "llm", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -26,12 +26,13 @@ classifiers = [
 ]
 
 dependencies = [
-    "faiss-cpu>=1.7.4",
+    "lancedb>=0.6.0",
+    "pyarrow>=14.0.0",
+    "fastembed>=0.2.0",
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "openai>=1.0.0",
-    "sentence-transformers>=2.2.0",
     "httpx>=0.25.0",
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -96,4 +97,3 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
-

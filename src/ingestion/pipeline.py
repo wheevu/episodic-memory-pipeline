@@ -12,7 +12,7 @@ from typing import Optional
 from ..embeddings import EmbeddingProvider
 from ..llm import LLMProvider
 from ..models import Episode
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 from .classifier import ClassificationResult, MemoryWorthinessClassifier
 from .extractor import EpisodeExtractor, ExtractionResult
 
@@ -88,7 +88,7 @@ class IngestionPipeline:
     1. Classification: Is this worth remembering?
     2. Extraction: Extract structured memory
     3. Embedding: Generate vector embedding
-    4. Storage: Persist to database and vector store
+    4. Storage: Persist to LanceDB store
 
     Design notes:
     - Each stage can short-circuit (e.g., not memory-worthy → skip rest)
@@ -98,8 +98,7 @@ class IngestionPipeline:
 
     def __init__(
         self,
-        database: Database,
-        vector_store: VectorStore,
+        lance_store: LanceStore,
         embedding_provider: EmbeddingProvider,
         llm: LLMProvider,
         worthiness_threshold: float = 0.6,
@@ -107,14 +106,12 @@ class IngestionPipeline:
         """Initialize the ingestion pipeline with all required dependencies.
 
         Args:
-            database: Structured storage for episodes/facts/summaries.
-            vector_store: Vector index for semantic retrieval.
+            lance_store: Unified metadata and vector store.
             embedding_provider: Provider used to embed episode text.
             llm: Provider used for classification and extraction.
             worthiness_threshold: Minimum classification confidence required to store.
         """
-        self.database = database
-        self.vector_store = vector_store
+        self.lance_store = lance_store
         self.embedding_provider = embedding_provider
         self.classifier = MemoryWorthinessClassifier(llm, threshold=worthiness_threshold)
         self.extractor = EpisodeExtractor(llm)
@@ -139,7 +136,7 @@ class IngestionPipeline:
             timestamp: When the input occurred; defaults to current UTC time.
             context: Optional extra context for classification.
             force: If True, bypass worthiness checks and store anyway.
-            persist_vectors: If True, persist vector indexes to disk.
+            persist_vectors: Deprecated; retained for API compatibility.
 
         Returns:
             An `IngestionResult` describing whether storage occurred and why.
@@ -223,32 +220,13 @@ class IngestionPipeline:
         embedding_text = episode.to_embedding_text()
         embedding = self.embedding_provider.embed_text(embedding_text)
 
-        # Stage 4: Storage
-        # Save episode first (embedding_id set after vector insert)
-        self.database.save_episode(episode)
-        logger.debug("Saved episode to database: %s", episode.id[:8])
-
+        # Stage 4: Storage (atomic metadata + vector write)
         try:
-            embedding_id = self.vector_store.add("episodes", episode.id, embedding)
-            logger.debug("Added episode to vector store: embedding_id=%d", embedding_id)
+            self.lance_store.save_episode(episode, embedding)
+            logger.debug("Saved episode to LanceDB store: %s", episode.id[:8])
         except Exception as exc:
-            logger.error("Vector store error for episode %s: %s", episode.id[:8], exc)
-            self.database.set_episode_active(episode.id, False)
-            return IngestionResult.skipped(f"Vector store error: {exc}", classification)
-
-        # Update episode with embedding ID
-        episode.embedding_id = embedding_id
-        try:
-            self.database.update_embedding_id("episodes", episode.id, embedding_id)
-        except Exception as exc:
-            logger.error("Embedding update error for episode %s: %s", episode.id[:8], exc)
-            self.database.set_episode_active(episode.id, False)
-            return IngestionResult.skipped(f"Embedding update error: {exc}", classification)
-
-        # Persist vector store
-        if persist_vectors:
-            self.vector_store.save()
-            logger.debug("Persisted vector store")
+            logger.error("LanceStore error for episode %s: %s", episode.id[:8], exc)
+            return IngestionResult.skipped(f"Store error: {exc}", classification)
 
         logger.info(
             "Successfully ingested episode: id=%s, type=%s, importance=%.2f",
@@ -276,7 +254,7 @@ class IngestionPipeline:
             session_id: Optional session identifier applied to all inputs.
             timestamp: Optional timestamp applied to all inputs.
             force: If True, bypass worthiness checks for all inputs.
-            persist_vectors: If True, persist vector indexes once at the end.
+            persist_vectors: Deprecated; retained for API compatibility.
 
         Returns:
             A list of `IngestionResult`, one per input text.
@@ -284,7 +262,6 @@ class IngestionPipeline:
         # Note: This remains sequential to preserve ordering and simplicity; embedding
         # could be batched later without changing the public API.
         results: list[IngestionResult] = []
-        stored_any = False
         for text in texts:
             result = self.ingest(
                 text,
@@ -294,24 +271,14 @@ class IngestionPipeline:
                 force=force,
                 persist_vectors=False,
             )
-            if result.success:
-                stored_any = True
             results.append(result)
-
-        if persist_vectors and stored_any:
-            self.vector_store.save()
 
         return results
 
     def get_statistics(self) -> dict:
-        """Return basic database and vector-store statistics.
+        """Return unified store statistics.
 
         Returns:
-            A dictionary with `database` and `vector_store` stats payloads.
+            A dictionary of LanceStore stats.
         """
-        db_stats = self.database.get_statistics()
-        vec_stats = self.vector_store.get_statistics()
-        return {
-            "database": db_stats,
-            "vector_store": vec_stats,
-        }
+        return self.lance_store.get_statistics()

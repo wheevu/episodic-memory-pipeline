@@ -86,12 +86,11 @@ def _doctor_dry_run(use_mock: bool) -> None:
     for var in [
         "EMBEDDING_PROVIDER",
         "EMBEDDING_MODEL",
-        "EMBEDDING_DEVICE",
         "EMBEDDING_DIMENSION",
         "LLM_PROVIDER",
+        "LLM_MODEL",
         "OLLAMA_MODEL",
         "OPENAI_API_KEY",
-        "TOKENIZERS_PARALLELISM",
     ]:
         value = env.get(var)
         display_val = f"[cyan]{value}[/cyan]" if value else "[dim]not set[/dim]"
@@ -101,12 +100,12 @@ def _doctor_dry_run(use_mock: bool) -> None:
             effect = f"→ {resolved['embedding_provider']}"
         elif var == "EMBEDDING_MODEL":
             effect = f"→ {resolved['embedding_model']}"
-        elif var == "EMBEDDING_DEVICE":
-            effect = f"→ {resolved['embedding_device']}"
         elif var == "EMBEDDING_DIMENSION":
             effect = f"→ {resolved['embedding_dimension']}"
         elif var == "LLM_PROVIDER":
             effect = f"→ {resolved['llm_provider']}"
+        elif var == "LLM_MODEL":
+            effect = f"→ {resolved['llm_model']}"
         elif var == "OLLAMA_MODEL":
             effect = (
                 f"→ {resolved['llm_model']}"
@@ -115,10 +114,6 @@ def _doctor_dry_run(use_mock: bool) -> None:
             )
         elif var == "OPENAI_API_KEY":
             effect = "Required for OpenAI provider"
-        elif var == "TOKENIZERS_PARALLELISM":
-            effect = (
-                "[green]safe[/green]" if value == "false" else "[yellow]should be 'false'[/yellow]"
-            )
         else:
             effect = ""
 
@@ -215,21 +210,13 @@ def _doctor_full(ctx: click.Context, use_mock: bool) -> None:
     table1.add_row(
         "Bootstrap initialized",
         "[green]✓ YES[/green]" if bs.is_initialized else "[dim]NO[/dim]",
-        "FAISS/SentenceTransformers init order enforced"
-        if bs.is_initialized
-        else "Not using bootstrap",
+        "Components initialized" if bs.is_initialized else "Not initialized",
     )
     table1.add_row(
         "Embedding model preloaded",
         "[green]✓ YES[/green]" if bs.has_cached_model else "[dim]NO[/dim]",
         "Model cached in memory" if bs.has_cached_model else "No preloaded model",
     )
-    table1.add_row(
-        "TOKENIZERS_PARALLELISM",
-        "[green]✓ YES[/green]" if bs.tokenizers_parallelism_disabled else "[yellow]⚠ NO[/yellow]",
-        "false (safe)" if bs.tokenizers_parallelism_disabled else "not set (may cause issues)",
-    )
-
     console.print(table1)
     console.print()
 
@@ -265,7 +252,7 @@ def _doctor_full(ctx: click.Context, use_mock: bool) -> None:
     console.print()
 
     # Vector Store
-    table4 = Table(title="Vector Store (FAISS)", show_header=True, header_style="bold cyan")
+    table4 = Table(title="Unified Store (LanceDB)", show_header=True, header_style="bold cyan")
     table4.add_column("Property", style="dim")
     table4.add_column("Value")
 
@@ -281,19 +268,7 @@ def _doctor_full(ctx: click.Context, use_mock: bool) -> None:
         table4.add_row(f"  {idx_name} vectors", str(count))
     table4.add_row("Total vectors", str(vs.total_vectors))
 
-    if vs.has_unsaved_changes:
-        table4.add_row("Unsaved changes", "[yellow]⚠ YES[/yellow]")
-
     console.print(table4)
-
-    if vs.has_unsaved_changes:
-        console.print(
-            Panel(
-                "[yellow]⚠ Warning: Some vectors have not been persisted to disk[/yellow]\n\n"
-                "Call vector_store.save() or use auto_save=True when initializing VectorStore.",
-                border_style="yellow",
-            )
-        )
 
     console.print()
 

@@ -55,8 +55,7 @@ class IngestionService:
         """
         if self._pipeline is None:
             self._pipeline = self.components.IngestionPipeline(
-                self.components.database,
-                self.components.vector_store,
+                self.components.lance_store,
                 self.components.embedding_provider,
                 self.components.llm,
                 worthiness_threshold=self.worthiness_threshold,

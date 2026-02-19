@@ -4,7 +4,6 @@ Episode extractor.
 Extracts structured episodic memory from raw text using LLM.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -87,8 +86,7 @@ class EpisodeExtractor:
         )
 
         try:
-            response = self.llm.complete(prompt)
-            result = json.loads(response)
+            result = self.llm.complete_json(prompt)
 
             # Parse memory type (sanitize string value)
             memory_type_str = as_str(
@@ -128,10 +126,10 @@ class EpisodeExtractor:
             return ExtractionResult(
                 episode=episode,
                 extraction_confidence=0.9,  # LLM extraction assumed reliable
-                raw_llm_response=response,
+                raw_llm_response=str(result),
             )
 
-        except (json.JSONDecodeError, KeyError) as e:
+        except (ValueError, KeyError) as e:
             # Fallback: create basic episode from raw text
             episode = Episode(
                 raw_input=text,

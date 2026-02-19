@@ -12,7 +12,7 @@ import numpy as np
 
 from ..embeddings import EmbeddingProvider
 from ..models import Episode, Fact, Summary
-from ..storage import Database, VectorStore
+from ..storage import LanceStore
 
 
 @dataclass
@@ -44,8 +44,7 @@ class SemanticRetriever:
 
     def __init__(
         self,
-        database: Database,
-        vector_store: VectorStore,
+        lance_store: LanceStore,
         embedding_provider: EmbeddingProvider,
         top_k: int = 10,
         similarity_threshold: float = 0.7,
@@ -53,14 +52,12 @@ class SemanticRetriever:
         """Initialize the semantic retriever.
 
         Args:
-            database: Structured storage used to fetch full records by ID.
-            vector_store: Vector index used for similarity search.
+            lance_store: Unified metadata and vector store.
             embedding_provider: Provider used to embed the query text.
             top_k: Default number of results to retrieve per memory type.
             similarity_threshold: Minimum cosine similarity score to include.
         """
-        self.database = database
-        self.vector_store = vector_store
+        self.lance_store = lance_store
         self.embedding_provider = embedding_provider
         self.top_k = top_k
         self.threshold = similarity_threshold
@@ -154,30 +151,22 @@ class SemanticRetriever:
             A list of hydrated `Episode` objects.
         """
 
-        # If filtering, get valid IDs first
-        if topic_filter or time_since or time_until:
-            db_episodes = self.database.get_episodes(
-                topic=topic_filter,
-                since=time_since,
-                until=time_until,
-                limit=k * 3,  # Get more to account for vector filtering
-            )
-            valid_ids = {ep.id for ep in db_episodes}
+        where_parts = ["is_active = true"]
+        if topic_filter:
+            escaped_topic = topic_filter.replace("'", "''")
+            where_parts.append(f"array_has(topics, '{escaped_topic}')")
+        if time_since:
+            where_parts.append(f"occurred_at >= '{time_since.isoformat()}'")
+        if time_until:
+            where_parts.append(f"occurred_at <= '{time_until.isoformat()}'")
 
-            if not valid_ids:
-                return []
-
-            results = self.vector_store.search_with_filter(
-                "episodes", query_embedding, valid_ids, k=k, threshold=self.threshold
-            )
-        else:
-            results = self.vector_store.search(
-                "episodes", query_embedding, k=k, threshold=self.threshold
-            )
+        where = " AND ".join(where_parts)
+        results = self.lance_store.search("episodes", query_embedding, k=k, where=where)
+        results = [(record_id, score) for record_id, score in results if score >= self.threshold]
 
         # Batch-fetch full episodes and filter out inactive ones
         record_ids = [record_id for record_id, _score in results]
-        episodes_map = self.database.get_episodes_by_ids(record_ids)
+        episodes_map = self.lance_store.get_episodes_by_ids(record_ids)
         # Preserve vector-search ranking order
         episodes = [
             episodes_map[rid]
@@ -204,24 +193,18 @@ class SemanticRetriever:
             A list of hydrated `Fact` objects.
         """
 
+        where_parts = ["is_active = true"]
         if topic_filter:
-            db_facts = self.database.get_facts(topic=topic_filter)
-            valid_ids = {f.id for f in db_facts}
+            escaped_topic = topic_filter.replace("'", "''")
+            where_parts.append(f"topic = '{escaped_topic}'")
 
-            if not valid_ids:
-                return []
-
-            results = self.vector_store.search_with_filter(
-                "facts", query_embedding, valid_ids, k=k, threshold=self.threshold
-            )
-        else:
-            results = self.vector_store.search(
-                "facts", query_embedding, k=k, threshold=self.threshold
-            )
+        where = " AND ".join(where_parts)
+        results = self.lance_store.search("facts", query_embedding, k=k, where=where)
+        results = [(record_id, score) for record_id, score in results if score >= self.threshold]
 
         # Batch-fetch full facts and filter out inactive ones
         record_ids = [record_id for record_id, _score in results]
-        facts_map = self.database.get_facts_by_ids(record_ids)
+        facts_map = self.lance_store.get_facts_by_ids(record_ids)
         facts = [
             facts_map[rid] for rid in record_ids if rid in facts_map and facts_map[rid].is_active
         ]
@@ -245,24 +228,18 @@ class SemanticRetriever:
             A list of hydrated `Summary` objects.
         """
 
+        where_parts = ["is_active = true"]
         if topic_filter:
-            db_summaries = self.database.get_summaries(topic=topic_filter)
-            valid_ids = {s.id for s in db_summaries}
+            escaped_topic = topic_filter.replace("'", "''")
+            where_parts.append(f"topic = '{escaped_topic}'")
 
-            if not valid_ids:
-                return []
-
-            results = self.vector_store.search_with_filter(
-                "summaries", query_embedding, valid_ids, k=k, threshold=self.threshold
-            )
-        else:
-            results = self.vector_store.search(
-                "summaries", query_embedding, k=k, threshold=self.threshold
-            )
+        where = " AND ".join(where_parts)
+        results = self.lance_store.search("summaries", query_embedding, k=k, where=where)
+        results = [(record_id, score) for record_id, score in results if score >= self.threshold]
 
         # Batch-fetch full summaries and filter out inactive ones
         record_ids = [record_id for record_id, _score in results]
-        summaries_map = self.database.get_summaries_by_ids(record_ids)
+        summaries_map = self.lance_store.get_summaries_by_ids(record_ids)
         summaries = [
             summaries_map[rid]
             for rid in record_ids
