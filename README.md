@@ -28,6 +28,7 @@ Later queries retrieve facts, episodes, and summaries and synthesize a coherent 
 git clone https://github.com/wheevu/episodic-memory-pipeline
 cd episodic-memory-pipeline
 pip install -e .
+cp env.example .env
 
 # Generate local artifacts deterministically
 make demo
@@ -111,7 +112,7 @@ LANCE_DB_PATH=./data/lancedb
 ## Programmatic Usage
 
 ```python
-from src.memory import MemorySystem
+from episodic_memory import MemorySystem
 
 mem = MemorySystem()  # reads .env/config
 mem.remember("I need to buy groceries for Friday dinner")
@@ -123,11 +124,14 @@ print(result.answer)
 For lower-level wiring:
 
 ```python
-from src.bootstrap import get_components
+from episodic_memory.bootstrap import get_components
 
 components = get_components()
 # components.lance_store, components.embedding_provider, components.llm
 ```
+
+Backward-compatible imports from `src` still work, but `episodic_memory` is the preferred
+public package namespace.
 
 ## Development
 

@@ -10,18 +10,18 @@ Usage:
     episodic-memory doctor
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import click
-
-from config import config
-from src.bootstrap import PipelineComponents, get_components
 
 # Import command modules
 from .commands import demo, doctor, eval_cmd, ingest, query
 
+if TYPE_CHECKING:
+    from src.bootstrap import PipelineComponents
+
 # Global cache for components
-_components: Optional[PipelineComponents] = None
+_components: Optional["PipelineComponents"] = None
 _components_mock_state: Optional[bool] = None
 
 
@@ -36,7 +36,7 @@ def reset_components() -> None:
     _components_mock_state = None
 
 
-def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
+def get_pipeline_components(use_mock: bool = False) -> "PipelineComponents":
     """
     Get or create pipeline components via bootstrap.
 
@@ -53,6 +53,9 @@ def get_pipeline_components(use_mock: bool = False) -> PipelineComponents:
         _components = None
 
     if _components is None:
+        from config import config
+        from src.bootstrap import get_components
+
         _components = get_components(config=config, force_mock=use_mock, verbose=True)
         _components_mock_state = use_mock
 

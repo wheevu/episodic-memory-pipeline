@@ -99,6 +99,10 @@ class DiagnosticsService:
             The resolved `Config` instance used for diagnostics.
         """
         if self._config is None:
+            if self.components is not None:
+                self._config = self.components.config
+                return self._config
+
             from config import config
 
             self._config = config

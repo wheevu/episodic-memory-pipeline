@@ -1,5 +1,6 @@
 """Bootstrap helpers for initializing pipeline components."""
 
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -19,6 +20,7 @@ from src.storage import LanceStore
 class PipelineComponents:
     """Container for initialized pipeline components."""
 
+    config: Config
     lance_store: LanceStore
     embedding_provider: EmbeddingProvider
     llm: LLMProvider
@@ -37,11 +39,15 @@ def get_components(
     cfg = config or default_config
     cfg.ensure_directories()
 
-    lance_store = LanceStore(cfg.lance_db_path, cfg.embedding_dimension)
     embedding_provider = _create_embedding_provider(cfg, force_mock, verbose)
+    _resolve_embedding_dimension(cfg, embedding_provider, verbose=verbose)
+
+    lance_store = LanceStore(cfg.lance_db_path, cfg.embedding_dimension)
+    lance_store.ensure_indexes()
     llm = _create_llm_provider(cfg, force_mock, verbose)
 
     return PipelineComponents(
+        config=cfg,
         lance_store=lance_store,
         embedding_provider=embedding_provider,
         llm=llm,
@@ -51,6 +57,31 @@ def get_components(
         EvaluationRunner=EvaluationRunner,
         get_scenario=get_scenario,
     )
+
+
+def _resolve_embedding_dimension(
+    config: Config, embedding_provider: EmbeddingProvider, verbose: bool
+) -> None:
+    """Validate and reconcile configured dimension with provider output dimension."""
+    configured = config.embedding_dimension
+    actual = embedding_provider.dimension
+    if configured == actual:
+        return
+
+    explicit_dimension = os.getenv("EMBEDDING_DIMENSION") is not None
+    if explicit_dimension:
+        raise ValueError(
+            "Configured EMBEDDING_DIMENSION does not match provider output dimension: "
+            f"configured={configured}, provider={actual}. "
+            "Update EMBEDDING_DIMENSION or use a compatible embedding model."
+        )
+
+    if verbose:
+        _log(
+            "[yellow]Adjusted embedding dimension from "
+            f"{configured} to provider dimension {actual}[/yellow]"
+        )
+    config.embedding_dimension = actual
 
 
 def _create_embedding_provider(

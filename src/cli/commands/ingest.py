@@ -44,10 +44,10 @@ def ingest(ctx: click.Context, text: str, source: str, force: bool) -> None:
     Returns:
         None.
     """
-    from config import config
-
     components = _get_components(ctx)
-    service = IngestionService(components, worthiness_threshold=config.memory_worthiness_threshold)
+    service = IngestionService(
+        components, worthiness_threshold=components.config.memory_worthiness_threshold
+    )
 
     with console.status("Processing input..."):
         result = service.ingest_text(text, source=source, force=force)

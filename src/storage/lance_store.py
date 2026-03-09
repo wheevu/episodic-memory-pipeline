@@ -7,7 +7,7 @@ vector similarity search.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +52,7 @@ class LanceStore:
         lancedb = _lance()
         self._db = lancedb.connect(str(db_path))
         self._ensure_tables()
+        self._validate_vector_dimensions()
 
     # =========================================================================
     # Internal: schema and table bootstrapping
@@ -137,6 +138,83 @@ class LanceStore:
     def _tbl(self, name: str):
         """Return an opened LanceDB table handle."""
         return self._db.open_table(name)
+
+    @staticmethod
+    def _escape_sql_string(value: str) -> str:
+        """Escape a string value for Lance SQL-like filter clauses."""
+        return value.replace("'", "''")
+
+    @classmethod
+    def _sql_eq(cls, column: str, value: str) -> str:
+        """Build an escaped equality clause."""
+        return f"{column} = '{cls._escape_sql_string(value)}'"
+
+    @classmethod
+    def _sql_in(cls, column: str, values: list[str]) -> Optional[str]:
+        """Build an escaped IN clause; return None for empty values."""
+        if not values:
+            return None
+        quoted = ", ".join(f"'{cls._escape_sql_string(v)}'" for v in values)
+        return f"{column} IN ({quoted})"
+
+    @staticmethod
+    def _join_conditions(parts: list[str]) -> Optional[str]:
+        """Join non-empty conditions with AND."""
+        filtered = [p for p in parts if p]
+        return " AND ".join(filtered) if filtered else None
+
+    def _validate_vector_dimensions(self) -> None:
+        """Validate that existing table vector dimensions match configured dimension."""
+        for table_name in [self.TABLE_EPISODES, self.TABLE_FACTS, self.TABLE_SUMMARIES]:
+            tbl = self._tbl(table_name)
+            schema = getattr(tbl, "schema", None)
+            if callable(schema):
+                schema = schema()
+            if schema is None or "vector" not in schema.names:
+                continue
+
+            field = schema.field("vector")
+            list_size = getattr(field.type, "list_size", None)
+            if list_size is None:
+                continue
+
+            existing_dim = int(list_size)
+            if existing_dim != self.embedding_dimension:
+                raise ValueError(
+                    "Embedding dimension mismatch for table "
+                    f"'{table_name}': existing={existing_dim}, configured={self.embedding_dimension}. "
+                    "Use a matching EMBEDDING_DIMENSION/model or rebuild the LanceDB directory."
+                )
+
+    def _count_rows(self, table_name: str, where: Optional[str] = None) -> int:
+        """Count rows in a table with an optional filter."""
+        tbl = self._tbl(table_name)
+
+        count_rows = getattr(tbl, "count_rows", None)
+        if callable(count_rows):
+            try:
+                if where:
+                    return int(tbl.count_rows(filter=where))
+                return int(tbl.count_rows())
+            except TypeError:
+                try:
+                    if where:
+                        return int(tbl.count_rows(where))
+                    return int(tbl.count_rows())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        query = tbl.search()
+        if where:
+            query = query.where(where)
+
+        try:
+            arrow_table = query.to_arrow()
+            return int(arrow_table.num_rows)
+        except Exception:
+            return len(query.to_list())
 
     # =========================================================================
     # Write helpers
@@ -276,7 +354,7 @@ class LanceStore:
             is_active: New active state.
         """
         tbl = self._tbl(self.TABLE_EPISODES)
-        tbl.update(where=f"id = '{episode_id}'", values={"is_active": is_active})
+        tbl.update(where=self._sql_eq("id", episode_id), values={"is_active": is_active})
 
     def set_fact_active(self, fact_id: str, is_active: bool) -> None:
         """Toggle the is_active flag on a fact.
@@ -286,7 +364,7 @@ class LanceStore:
             is_active: New active state.
         """
         tbl = self._tbl(self.TABLE_FACTS)
-        tbl.update(where=f"id = '{fact_id}'", values={"is_active": is_active})
+        tbl.update(where=self._sql_eq("id", fact_id), values={"is_active": is_active})
 
     def mark_episodes_consolidated(self, episode_ids: list[str]) -> None:
         """Mark a list of episodes as consolidated.
@@ -298,7 +376,7 @@ class LanceStore:
             return
         tbl = self._tbl(self.TABLE_EPISODES)
         for episode_id in episode_ids:
-            tbl.update(where=f"id = '{episode_id}'", values={"consolidated": True})
+            tbl.update(where=self._sql_eq("id", episode_id), values={"consolidated": True})
 
     def supersede_fact(self, old_fact_id: str, new_fact) -> None:
         """Mark a fact as superseded by a newer fact.
@@ -309,7 +387,7 @@ class LanceStore:
         """
         tbl = self._tbl(self.TABLE_FACTS)
         tbl.update(
-            where=f"id = '{old_fact_id}'",
+            where=self._sql_eq("id", old_fact_id),
             values={"superseded_by": new_fact.id, "is_active": False},
         )
 
@@ -402,7 +480,7 @@ class LanceStore:
             The Episode if found; otherwise None.
         """
         tbl = self._tbl(self.TABLE_EPISODES)
-        rows = tbl.search().where(f"id = '{episode_id}'").limit(1).to_list()
+        rows = tbl.search().where(self._sql_eq("id", episode_id)).limit(1).to_list()
         return self._row_to_episode(rows[0]) if rows else None
 
     def get_fact(self, fact_id: str):
@@ -415,7 +493,7 @@ class LanceStore:
             The Fact if found; otherwise None.
         """
         tbl = self._tbl(self.TABLE_FACTS)
-        rows = tbl.search().where(f"id = '{fact_id}'").limit(1).to_list()
+        rows = tbl.search().where(self._sql_eq("id", fact_id)).limit(1).to_list()
         return self._row_to_fact(rows[0]) if rows else None
 
     def get_summary(self, summary_id: str):
@@ -428,7 +506,7 @@ class LanceStore:
             The Summary if found; otherwise None.
         """
         tbl = self._tbl(self.TABLE_SUMMARIES)
-        rows = tbl.search().where(f"id = '{summary_id}'").limit(1).to_list()
+        rows = tbl.search().where(self._sql_eq("id", summary_id)).limit(1).to_list()
         return self._row_to_summary(rows[0]) if rows else None
 
     # =========================================================================
@@ -463,7 +541,7 @@ class LanceStore:
             conditions.append(f"occurred_at >= '{since.isoformat()}'")
         if until:
             conditions.append(f"occurred_at <= '{until.isoformat()}'")
-        where = " AND ".join(conditions) if conditions else None
+        where = self._join_conditions(conditions)
 
         query = tbl.search().limit(limit * 3 if topic else limit)
         if where:
@@ -501,8 +579,8 @@ class LanceStore:
         if active_only:
             conditions.append("is_active = true")
         if topic:
-            conditions.append(f"topic = '{topic}'")
-        where = " AND ".join(conditions) if conditions else None
+            conditions.append(self._sql_eq("topic", topic))
+        where = self._join_conditions(conditions)
 
         query = tbl.search().limit(limit)
         if where:
@@ -532,12 +610,12 @@ class LanceStore:
         tbl = self._tbl(self.TABLE_SUMMARIES)
         conditions = ["is_active = true"]
         if topic:
-            conditions.append(f"topic = '{topic}'")
+            conditions.append(self._sql_eq("topic", topic))
         if level is not None:
             conditions.append(f"summary_level = {level}")
         if since:
             conditions.append(f"time_end >= '{since.isoformat()}'")
-        where = " AND ".join(conditions)
+        where = self._join_conditions(conditions) or "is_active = true"
 
         rows = tbl.search().where(where).limit(limit).to_list()
         rows.sort(key=lambda r: r.get("time_end", ""), reverse=True)
@@ -553,10 +631,7 @@ class LanceStore:
             A list of unconsolidated Episode objects.
         """
         tbl = self._tbl(self.TABLE_EPISODES)
-        conditions = ["is_active = true", "consolidated = false"]
-        if topic:
-            conditions.append(f"array_has_all(topics, ARRAY['{topic}'])")
-        where = " AND ".join(conditions)
+        where = "is_active = true AND consolidated = false"
         rows = tbl.search().where(where).limit(500).to_list()
 
         if topic:
@@ -577,8 +652,10 @@ class LanceStore:
         if not episode_ids:
             return {}
         tbl = self._tbl(self.TABLE_EPISODES)
-        id_list = ", ".join(f"'{i}'" for i in episode_ids)
-        rows = tbl.search().where(f"id IN ({id_list})").limit(len(episode_ids)).to_list()
+        where = self._sql_in("id", episode_ids)
+        if where is None:
+            return {}
+        rows = tbl.search().where(where).limit(len(episode_ids)).to_list()
         return {r["id"]: self._row_to_episode(r) for r in rows}
 
     def get_facts_by_ids(self, fact_ids: list[str]) -> dict:
@@ -593,8 +670,10 @@ class LanceStore:
         if not fact_ids:
             return {}
         tbl = self._tbl(self.TABLE_FACTS)
-        id_list = ", ".join(f"'{i}'" for i in fact_ids)
-        rows = tbl.search().where(f"id IN ({id_list})").limit(len(fact_ids)).to_list()
+        where = self._sql_in("id", fact_ids)
+        if where is None:
+            return {}
+        rows = tbl.search().where(where).limit(len(fact_ids)).to_list()
         return {r["id"]: self._row_to_fact(r) for r in rows}
 
     def get_summaries_by_ids(self, summary_ids: list[str]) -> dict:
@@ -609,8 +688,10 @@ class LanceStore:
         if not summary_ids:
             return {}
         tbl = self._tbl(self.TABLE_SUMMARIES)
-        id_list = ", ".join(f"'{i}'" for i in summary_ids)
-        rows = tbl.search().where(f"id IN ({id_list})").limit(len(summary_ids)).to_list()
+        where = self._sql_in("id", summary_ids)
+        if where is None:
+            return {}
+        rows = tbl.search().where(where).limit(len(summary_ids)).to_list()
         return {r["id"]: self._row_to_summary(r) for r in rows}
 
     def get_latest_summary(self, topic: str):
@@ -636,7 +717,7 @@ class LanceStore:
             A list of dicts with at minimum "name" and "episode_count" keys.
         """
         tbl = self._tbl(self.TABLE_EPISODES)
-        rows = tbl.search().where("is_active = true").limit(10000).to_list()
+        rows = tbl.search().where("is_active = true").to_list()
 
         topic_counts: dict[str, int] = {}
         for row in rows:
@@ -661,26 +742,41 @@ class LanceStore:
     ) -> list[str]:
         """Find topics that should be consolidated.
 
-        Criteria: has at least `min_episodes` unconsolidated active episodes.
+        Criteria:
+        1) has at least `min_episodes` unconsolidated active episodes, and
+        2) has no summary yet OR last summary is older than `max_age_days`.
 
         Args:
             min_episodes: Minimum unconsolidated episode count to trigger consolidation.
-            max_age_days: Not used in this implementation (kept for API compatibility).
+            max_age_days: Maximum age since latest summary before reconsolidating.
 
         Returns:
             A list of topic names needing consolidation.
         """
         tbl = self._tbl(self.TABLE_EPISODES)
-        rows = (
-            tbl.search().where("is_active = true AND consolidated = false").limit(10000).to_list()
-        )
+        rows = tbl.search().where("is_active = true AND consolidated = false").to_list()
 
         topic_counts: dict[str, int] = {}
         for row in rows:
             for t in row.get("topics") or []:
                 topic_counts[t] = topic_counts.get(t, 0) + 1
 
-        return [topic for topic, count in topic_counts.items() if count >= min_episodes]
+        candidate_topics = [topic for topic, count in topic_counts.items() if count >= min_episodes]
+        if not candidate_topics:
+            return []
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        selected_topics: list[str] = []
+        for topic in candidate_topics:
+            latest_summary = self.get_latest_summary(topic)
+            if latest_summary is None:
+                selected_topics.append(topic)
+                continue
+
+            if latest_summary.time_end <= cutoff:
+                selected_topics.append(topic)
+
+        return selected_topics
 
     # =========================================================================
     # Vector search
@@ -708,6 +804,10 @@ class LanceStore:
         norm_vec = self._norm(query_vector)
 
         q = tbl.search(norm_vec).limit(k)
+        try:
+            q = q.metric("cosine")
+        except AttributeError:
+            pass
         if where:
             q = q.where(where)
 
@@ -719,10 +819,9 @@ class LanceStore:
 
         results = []
         for row in rows:
-            score = float(row.get("_distance", 0.0))
-            # LanceDB returns L2 distance; convert to cosine similarity for normalised vectors:
-            # cosine_sim = 1 - (L2^2 / 2)  (for unit vectors)
-            cosine_sim = max(-1.0, 1.0 - score / 2.0)
+            distance = float(row.get("_distance", 0.0))
+            # Using cosine metric: similarity ~= 1 - distance.
+            cosine_sim = max(-1.0, min(1.0, 1.0 - distance))
             results.append((row["id"], cosine_sim))
 
         return results
@@ -736,21 +835,14 @@ class LanceStore:
 
         Returns:
             A dict with total_episodes, unconsolidated_episodes, total_facts,
-            total_summaries, and total_topics.
+            total_summaries, total_topics, and vector_stats per table.
         """
-        ep_tbl = self._tbl(self.TABLE_EPISODES)
-        fact_tbl = self._tbl(self.TABLE_FACTS)
-        sum_tbl = self._tbl(self.TABLE_SUMMARIES)
-
-        total_episodes = len(ep_tbl.search().where("is_active = true").limit(100000).to_list())
-        unconsolidated = len(
-            ep_tbl.search()
-            .where("is_active = true AND consolidated = false")
-            .limit(100000)
-            .to_list()
+        total_episodes = self._count_rows(self.TABLE_EPISODES, where="is_active = true")
+        unconsolidated = self._count_rows(
+            self.TABLE_EPISODES, where="is_active = true AND consolidated = false"
         )
-        total_facts = len(fact_tbl.search().where("is_active = true").limit(100000).to_list())
-        total_summaries = len(sum_tbl.search().where("is_active = true").limit(100000).to_list())
+        total_facts = self._count_rows(self.TABLE_FACTS, where="is_active = true")
+        total_summaries = self._count_rows(self.TABLE_SUMMARIES, where="is_active = true")
         topic_counts = self.get_topic_counts()
 
         return {
@@ -759,7 +851,72 @@ class LanceStore:
             "total_facts": total_facts,
             "total_summaries": total_summaries,
             "total_topics": len(topic_counts),
+            "vector_stats": {
+                "episodes": {"count": total_episodes, "dimension": self.embedding_dimension},
+                "facts": {"count": total_facts, "dimension": self.embedding_dimension},
+                "summaries": {"count": total_summaries, "dimension": self.embedding_dimension},
+            },
         }
+
+    def ensure_indexes(self) -> None:
+        """Best-effort index creation for vector and common scalar filters."""
+        self._ensure_vector_index(self.TABLE_EPISODES)
+        self._ensure_vector_index(self.TABLE_FACTS)
+        self._ensure_vector_index(self.TABLE_SUMMARIES)
+
+        for table_name, columns in [
+            (self.TABLE_EPISODES, ["id", "is_active", "consolidated", "occurred_at"]),
+            (self.TABLE_FACTS, ["id", "is_active", "topic", "updated_at"]),
+            (self.TABLE_SUMMARIES, ["id", "is_active", "topic", "time_end"]),
+        ]:
+            for column in columns:
+                self._ensure_scalar_index(table_name, column)
+
+    def _ensure_vector_index(self, table_name: str) -> None:
+        """Create a vector index for a table when possible."""
+        tbl = self._tbl(table_name)
+        lancedb = _lance()
+
+        try:
+            tbl.create_index(
+                "vector",
+                config=lancedb.index.HnswSq(distance_type="cosine"),
+                replace=False,
+            )
+            logger.info("Created vector index on table '%s'", table_name)
+            return
+        except Exception as exc:
+            if "exists" in str(exc).lower() or "already" in str(exc).lower():
+                return
+
+        try:
+            tbl.create_index(metric="cosine", index_type="IVF_HNSW_SQ")
+            logger.info("Created vector index on table '%s'", table_name)
+        except Exception as exc:
+            if "exists" not in str(exc).lower() and "already" not in str(exc).lower():
+                logger.warning("Could not create vector index on '%s': %s", table_name, exc)
+
+    def _ensure_scalar_index(self, table_name: str, column: str) -> None:
+        """Create a scalar index for a column when possible."""
+        tbl = self._tbl(table_name)
+        lancedb = _lance()
+
+        try:
+            tbl.create_index(column, config=lancedb.index.BTree(), replace=False)
+            logger.debug("Created scalar index on %s.%s", table_name, column)
+            return
+        except Exception as exc:
+            if "exists" in str(exc).lower() or "already" in str(exc).lower():
+                return
+
+        try:
+            tbl.create_index(column)
+            logger.debug("Created scalar index on %s.%s", table_name, column)
+        except Exception as exc:
+            if "exists" not in str(exc).lower() and "already" not in str(exc).lower():
+                logger.warning(
+                    "Could not create scalar index on %s.%s: %s", table_name, column, exc
+                )
 
     def optimize(self, table: str) -> None:
         """Create an HNSW index on the vector column for faster search.
@@ -767,15 +924,7 @@ class LanceStore:
         Args:
             table: Table name to index.
         """
-        tbl = self._tbl(table)
-        try:
-            tbl.create_index(
-                metric="cosine",
-                index_type="IVF_HNSW_SQ",
-            )
-            logger.info("Created HNSW index on table '%s'", table)
-        except Exception as exc:
-            logger.warning("Could not create index on '%s': %s", table, exc)
+        self._ensure_vector_index(table)
 
     def close(self) -> None:
         """Close the LanceDB connection (no-op; LanceDB manages connections internally)."""

@@ -151,10 +151,9 @@ class EvaluationService:
         Returns:
             An `EvalConfig` snapshot describing the run configuration.
         """
-        from config import config
-
         emb = self.components.embedding_provider
         llm = self.components.llm
+        config = self.components.config
 
         return EvalConfig(
             embedding_provider=config.embedding_provider,

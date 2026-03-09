@@ -16,9 +16,8 @@ import argparse
 import json
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
-from typing import Optional
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -106,7 +105,7 @@ def clean_data_directory(data_dir: Path, dry_run: bool = False, quiet: bool = Fa
     Returns:
         None.
     """
-    patterns = ["*.db", "*.db-shm", "*.db-wal", "*.faiss", "*.npy", "*.index"]
+    patterns = ["*.db", "*.db-shm", "*.db-wal", "*.npy", "*.index"]
 
     removed = []
     for pattern in patterns:
@@ -172,7 +171,7 @@ def bootstrap_demo(
         "episodes_ingested": 0,
         "artifacts_created": [],
         "errors": [],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     log("\n" + "=" * 60, quiet)

@@ -195,7 +195,10 @@ def stats(ctx: click.Context) -> None:
     table2.add_column("Dimension")
 
     for name, info in system_stats.vector_stats.items():
-        table2.add_row(name, str(info["count"]), str(info["dimension"]))
+        if isinstance(info, dict):
+            table2.add_row(name, str(info.get("count", "?")), str(info.get("dimension", "?")))
+        else:
+            table2.add_row(name, str(info), "?")
 
     console.print(table2)
 

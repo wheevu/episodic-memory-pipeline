@@ -1,20 +1,18 @@
-# Core dependencies
-faiss-cpu>=1.7.4
+# Core runtime dependencies
+lancedb>=0.6.0
+pyarrow>=14.0.0
+fastembed>=0.2.0
 numpy>=1.24.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
-
-# Embedding providers
 openai>=1.0.0
-sentence-transformers>=2.2.0  # local fallback
-
-# LLM providers
-httpx>=0.25.0  # for async HTTP (ollama, etc.)
-
-# Utilities
-click>=8.1.0  # CLI framework
-rich>=13.0.0  # pretty terminal output
+httpx>=0.25.0
+click>=8.1.0
+rich>=13.0.0
 python-dateutil>=2.8.0
 
-# Development
+# Development/testing dependencies
 pytest>=7.0.0
+pytest-cov>=4.0.0
+ruff>=0.1.0
+mypy>=1.0.0

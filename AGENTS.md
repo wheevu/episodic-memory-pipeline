@@ -33,7 +33,7 @@ Scope: repository root and all subdirectories.
 - `src/cli/` Click app/commands; `src/cli/render.py` Rich helpers.
 - `src/services/` service layer (diagnostics/ingestion/retrieval/evaluation), no UI.
 - `src/models/` Pydantic Episode/Fact/Summary with serialization helpers.
-- `src/storage/` SQLite + FAISS (`database.py`, `vector_store.py`).
+- `src/storage/` unified LanceDB storage (`lance_store.py`).
 - `src/ingestion/`, `src/consolidation/`, `src/retrieval/` core pipelines.
 - `src/llm/`, `src/embeddings/` provider interfaces; `src/prompts/` templates.
 - `src/utils/llm_sanitize.py` sanitization and safety helpers.
@@ -90,10 +90,10 @@ Scope: repository root and all subdirectories.
 - Avoid circular imports by using forward references and `TYPE_CHECKING`.
 
 ### Database & Storage
-- SQLite access is centralized in `src/storage/database.py`.
-- Use parameterized SQL; do not build SQL with f-strings.
-- Keep DB mutations inside the `Database` class.
-- Ensure topic counters stay consistent when updating episodes.
+- LanceDB access is centralized in `src/storage/lance_store.py`.
+- Escape/filter user-derived values in Lance `where` clauses; avoid direct string interpolation.
+- Keep storage mutations inside `LanceStore`.
+- Ensure topic counters and consolidation flags stay consistent when updating episodes.
 
 ### LLM / Embedding Integration
 - LLM providers and embedding providers are in `src/llm/` and `src/embeddings/`.
@@ -149,4 +149,3 @@ Scope: repository root and all subdirectories.
 
 ## Cursor / Copilot Rules
 - No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` were found.
-

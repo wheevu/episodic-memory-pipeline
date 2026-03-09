@@ -341,7 +341,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             Embedding vector as `np.float32`.
         """
         embedding = next(iter(self._model.embed([text]))).astype(np.float32)
-
+        if self._normalize:
+            return _normalize_l2(embedding)
         return embedding
 
     def embed_batch(self, texts: list[str]) -> np.ndarray:
@@ -357,7 +358,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             return np.array([], dtype=np.float32).reshape(0, self._dimension)
 
         embeddings = np.vstack(list(self._model.embed(texts))).astype(np.float32)
-
+        if self._normalize:
+            return _normalize_l2(embeddings)
         return embeddings
 
 

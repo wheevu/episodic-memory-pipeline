@@ -59,7 +59,7 @@ This will:
 
 1. Clear existing data in `data/`
 2. Re-ingest all fixtures
-3. Rebuild FAISS indexes
+3. Rebuild LanceDB tables/indexes
 4. Print summary of generated artifacts
 
 ## Adding New Fixtures

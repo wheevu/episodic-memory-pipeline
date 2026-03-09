@@ -111,9 +111,9 @@ clean:
 
 clean-data:
 	rm -f data/*.db data/*.db-shm data/*.db-wal
-	rm -f data/*.faiss data/*.npy data/*.index
+	rm -f data/*.npy data/*.index
+	rm -rf data/lancedb
 	@echo "Cleaned generated data files"
 
 clean-all: clean clean-data
 	@echo "Cleaned everything"
-

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
     from src.bootstrap import PipelineComponents
-    from src.models import Episode, Fact
+    from src.models import Episode, Fact, Summary
 
 
 @dataclass
@@ -21,6 +21,8 @@ class QueryResult:
     confidence: float = 0.0
     episodes: List["Episode"] = field(default_factory=list)
     facts: List["Fact"] = field(default_factory=list)
+    summaries: List["Summary"] = field(default_factory=list)
+    query_type: str = "semantic"
     gaps: List[str] = field(default_factory=list)
 
 
@@ -53,7 +55,7 @@ class SystemStats:
     total_facts: int
     total_summaries: int
     total_topics: int
-    vector_stats: dict
+    vector_stats: dict[str, dict[str, int]]
 
 
 class RetrievalService:
@@ -126,6 +128,8 @@ class RetrievalService:
             confidence=result.confidence,
             episodes=result.episodes,
             facts=result.facts,
+            summaries=result.summaries,
+            query_type=result.query_type,
             gaps=result.gaps,
         )
 
@@ -185,7 +189,7 @@ class RetrievalService:
         Get system statistics.
 
         Returns:
-            SystemStats with unified storage stats
+            SystemStats with unified storage and per-table vector stats
         """
         store_stats = self.components.lance_store.get_statistics()
 
@@ -195,7 +199,7 @@ class RetrievalService:
             total_facts=store_stats["total_facts"],
             total_summaries=store_stats["total_summaries"],
             total_topics=store_stats["total_topics"],
-            vector_stats={"backend": "lancedb"},
+            vector_stats=store_stats.get("vector_stats", {}),
         )
 
     def get_topics(self, limit: int = 10) -> List[dict]:

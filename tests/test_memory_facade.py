@@ -54,6 +54,12 @@ class TestConstruction:
 
         assert MemorySystem is not None
 
+    def test_import_from_public_namespace(self):
+        """MemorySystem is importable from the public package namespace."""
+        from episodic_memory import MemorySystem
+
+        assert MemorySystem is not None
+
     def test_lazy_init(self, test_config):
         """Components are NOT bootstrapped until first access."""
         from src.memory import MemorySystem

@@ -6,7 +6,7 @@ A local-first personal memory system for AI assistants.
 __version__ = "0.1.0"
 
 # Public API — the MemorySystem facade is the primary entry point for agents.
-# It is imported lazily to avoid triggering heavy model/FAISS loads at
+# It is imported lazily to avoid triggering heavy model/storage loads at
 # package-import time.  Usage:
 #
 #   from src import MemorySystem

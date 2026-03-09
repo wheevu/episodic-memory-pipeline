@@ -9,7 +9,7 @@ Tests are organized into:
    - TestCosineSimilarity: Cosine similarity math tests
 
 2. Slow tests (@pytest.mark.slow):
-   - TestLocalEmbeddingProvider: Real SentenceTransformers tests
+   - TestLocalEmbeddingProvider: Real FastEmbed model tests
    - TestBgeM3Provider: BGE-M3 specific tests
 
 Running tests:
@@ -130,7 +130,7 @@ class TestFactoryFunction:
 @pytest.mark.slow
 class TestLocalEmbeddingProvider:
     """
-    Test LocalEmbeddingProvider with real SentenceTransformers model.
+    Test LocalEmbeddingProvider with real FastEmbed model.
 
     These tests are marked as slow because they require downloading the model
     (~1GB for BGE-M3) on first run. They verify semantic correctness.
@@ -325,15 +325,15 @@ class TestProviderSelection:
     def test_local_provider_listed_but_not_loaded(self) -> None:
         """Local provider type should be recognized even if not loaded."""
         # This just tests that the factory knows about 'local'
-        # We don't actually load it to avoid model download
+        # We don't actually load it here to avoid model download
         try:
             # This would fail only if 'local' isn't a known provider type
             # In the real implementation, this creates the provider
-            # but we can check the error message if sentence-transformers isn't installed
+            # but we can check the error message if fastembed isn't installed
             pass
         except ImportError as e:
-            # Expected if sentence-transformers not installed
-            assert "sentence-transformers" in str(e).lower()
+            # Expected if fastembed is not installed
+            assert "fastembed" in str(e).lower()
 
     def test_embedding_dimension_configurable(self) -> None:
         """Mock provider should respect dimension parameter."""

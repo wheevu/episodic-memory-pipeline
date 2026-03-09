@@ -38,7 +38,6 @@ def demo(ctx: click.Context) -> None:
     Returns:
         None.
     """
-    from config import config
     from src.cli.commands.query import stats
 
     console.print(
@@ -56,7 +55,7 @@ def demo(ctx: click.Context) -> None:
     components = _get_components(ctx)
 
     ingestion_service = IngestionService(
-        components, worthiness_threshold=config.memory_worthiness_threshold
+        components, worthiness_threshold=components.config.memory_worthiness_threshold
     )
     retrieval_service = RetrievalService(components)
 
@@ -121,12 +120,10 @@ def interactive(ctx: click.Context) -> None:
     Returns:
         None.
     """
-    from config import config
-
     components = _get_components(ctx)
 
     ingestion_service = IngestionService(
-        components, worthiness_threshold=config.memory_worthiness_threshold
+        components, worthiness_threshold=components.config.memory_worthiness_threshold
     )
     retrieval_service = RetrievalService(components)
 

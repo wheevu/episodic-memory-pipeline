@@ -20,7 +20,6 @@ class Config:
 
     # Paths
     base_path: Path = field(default_factory=lambda: Path(__file__).parent)
-    database_path: Optional[Path] = field(default=None)
     lance_db_path: Optional[Path] = field(default=None)
 
     # Embedding configuration (default: local with BGE-M3)
@@ -28,7 +27,7 @@ class Config:
     embedding_model: str = "BAAI/bge-m3"  # Default local model
     embedding_dimension: int = 1024  # BGE-M3 dimension
 
-    # Ollama embeddings (alternative to local SentenceTransformers)
+    # Ollama embeddings (alternative local embedding runtime)
     ollama_embed_model: str = "nomic-embed-text"  # For EMBEDDING_PROVIDER=ollama
 
     # LLM configuration
@@ -66,8 +65,6 @@ class Config:
             None.
         """
         # Set default paths relative to base
-        if self.database_path is None:
-            self.database_path = self.base_path / "data" / "memory.db"
         if self.lance_db_path is None:
             self.lance_db_path = self.base_path / "data" / "lancedb"
 
@@ -96,8 +93,13 @@ class Config:
         if llm_temp := os.getenv("LLM_TEMPERATURE"):
             self.llm_temperature = float(llm_temp)
 
-        if db_path := os.getenv("DATABASE_PATH"):
-            self.database_path = Path(db_path)
+        if memory_threshold := os.getenv("MEMORY_WORTHINESS_THRESHOLD"):
+            self.memory_worthiness_threshold = float(memory_threshold)
+        if consolidation_episode_threshold := os.getenv("CONSOLIDATION_EPISODE_THRESHOLD"):
+            self.consolidation_episode_threshold = int(consolidation_episode_threshold)
+        if consolidation_age_days := os.getenv("CONSOLIDATION_AGE_DAYS"):
+            self.consolidation_age_days = int(consolidation_age_days)
+
         if lance_path := os.getenv("LANCE_DB_PATH"):
             self.lance_db_path = Path(lance_path)
 
